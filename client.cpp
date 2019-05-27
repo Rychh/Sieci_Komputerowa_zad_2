@@ -2,12 +2,21 @@
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <string>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 using namespace std;
 
-constexpr size_t MAX_CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
-
+constexpr size_t CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
+#define TTL_VALUE     4
 
 string MCAST_ADDR;// -g
 int CMD_PORT;// -p
@@ -19,15 +28,21 @@ int used_space = 0;
 struct SIMPL_CMD {
     char cmd[10];
     uint64_t cmd_seq;
-    char data[MAX_CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
+    char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
 };
 
 struct CMPLX_CMD {
     char cmd[10];
     uint64_t cmd_seq;
     uint64_t param;
-    char data[MAX_CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
+    char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
 };
+
+
+void syserr(const char *fmt, ...) {
+    fprintf(stderr, "ERROR: ");
+    exit(EXIT_FAILURE);
+}//TODO
 
 void parser(int ac, char *av[]) {
     try {
@@ -97,6 +112,52 @@ int main(int ac, char *av[]) {
         exit(1);
     }
 
+    /* argumenty wywołania programu */
+    char *remote_dotted_address;
+    in_port_t remote_port;
+
+    /* zmienne i struktury opisujące gniazda */
+    int sock, optval;
+//  struct sockaddr_in local_address;
+    struct sockaddr_in remote_address;
+
+    /* parsowanie argumentów programu */
+    remote_dotted_address = (char *) MCAST_ADDR.c_str();
+    remote_port = CMD_PORT;
+
+    /* otworzenie gniazda */
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        syserr("socket");
+
+    /* uaktywnienie rozgłaszania (ang. broadcast) */
+    optval = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void *) &optval, sizeof optval) < 0)
+        syserr("setsockopt broadcast");
+
+    /* ustawienie TTL dla datagramó w rozsyłanych do grupy */
+    optval = TTL_VALUE;
+    if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optval, sizeof optval) < 0)
+        syserr("setsockopt multicast ttl");
+
+    /* ustawienie adresu i portu odbiorcy */
+    remote_address.sin_family = AF_INET;
+    remote_address.sin_port = htons(remote_port);
+    if (inet_aton(remote_dotted_address, &remote_address.sin_addr) == 0)
+        syserr("inet_aton");
+    if (connect(sock, (struct sockaddr *) &remote_address, sizeof remote_address) < 0)
+        syserr("connect");
+
+    SIMPL_CMD *mess = new SIMPL_CMD;
+    strcpy(mess->cmd, "HELLO");
+
+    /* radosne rozgłaszanie czasu */
+    if (write(sock, mess, CMD_SIZE) != CMD_SIZE)
+        syserr("write");
+
+    /* koniec */
+    close(sock);
+    exit(EXIT_SUCCESS);
 
     return 0;
 }

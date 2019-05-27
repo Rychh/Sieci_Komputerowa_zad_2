@@ -2,11 +2,20 @@
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <string>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 using namespace std;
 
-constexpr size_t MAX_CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
+constexpr size_t CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
 
 
 string MCAST_ADDR;// -g
@@ -19,15 +28,21 @@ int used_space = 0;
 struct SIMPL_CMD {
     char cmd[10];
     uint64_t cmd_seq;
-    char data[MAX_CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
+    char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
 };
 
 struct CMPLX_CMD {
     char cmd[10];
     uint64_t cmd_seq;
     uint64_t param;
-    char data[MAX_CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
+    char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
 };
+
+void syserr(const char *fmt, ...) {
+    fprintf(stderr, "ERROR: ");
+    exit(EXIT_FAILURE);
+}//TODO
+
 
 void parser(int ac, char *av[]) {
     try {
@@ -120,6 +135,60 @@ int main(int ac, char *av[]) {
         cerr << "Sry Za amało pamieci."; //TODO
         exit(1);
     }
+
+    /* argumenty wywołania programu */
+    char *multicast_dotted_address;
+    in_port_t local_port;
+
+    /* zmienne i struktury opisujące gniazda */
+    int sock;
+    struct sockaddr_in local_address;
+    struct ip_mreq ip_mreq;
+
+    /* zmienne obsługujące komunikację */
+    ssize_t rcv_len;
+    int i;
+
+    /* parsowanie argumentów programu */
+
+    local_port = CMD_PORT;
+
+    /* otworzenie gniazda */
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        syserr("socket");
+
+    /* podpięcie się do grupy rozsyłania (ang. multicast) */
+    ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
+        syserr("inet_aton");
+    if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
+        syserr("setsockopt");
+
+    /* podpięcie się pod lokalny adres i port */
+    local_address.sin_family = AF_INET;
+    local_address.sin_addr.s_addr = htonl(INADDR_ANY);
+    local_address.sin_port = htons(local_port);
+    if (bind(sock, (struct sockaddr *) &local_address, sizeof local_address) < 0)
+        syserr("bind");
+
+    SIMPL_CMD* mess = new SIMPL_CMD;
+
+
+    rcv_len = read(sock, mess, CMD_SIZE);
+    if (rcv_len < 0)
+        syserr("read");
+    else {
+        cout << mess->cmd;
+    }
+
+    /* w taki sposób można odpiąć się od grupy rozsyłania */
+    if (setsockopt(sock, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
+        syserr("setsockopt");
+
+    /* koniec */
+    close(sock);
+    exit(EXIT_SUCCESS);
 
     return 0;
 }
