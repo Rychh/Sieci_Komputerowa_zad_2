@@ -10,12 +10,11 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include "helper.h"
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 using namespace std;
-
-constexpr size_t CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
 
 
 string MCAST_ADDR;// -g
@@ -24,19 +23,6 @@ unsigned long long MAX_SPACE = 52428800;// -b
 string SHRD_FLDR = ".";// -f
 short TIMEOUT = 5;// -t
 int used_space = 0;
-
-struct SIMPL_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
-};
-
-struct CMPLX_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    uint64_t param;
-    char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
-};
 
 void syserr(const char *fmt, ...) {
     fprintf(stderr, "ERROR: ");
@@ -114,15 +100,37 @@ void load_files_names() {
     }
 }
 
-int main(int ac, char *av[]) {
-    std::cout << "Hello, World!" << std::endl;
-    parser(ac, av);
+void set_sock_options(int &sock, struct ip_mreq &ip_mreq, char *multicast_dotted_address) {
 
+    /* podpięcie się do grupy rozsyłania (ang. multicast) */
+    ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
+        syserr("inet_aton");
+
+    /* podpięcie się do grupy rozsyłania (ang. multicast) */
+    ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+
+    if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
+        syserr("inet_aton");
+
+    if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
+        syserr("setsockopt");
+
+    int yes = 1;//TODO zmiana nazwy
+
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
+        syserr("setsockopt");
+}
+
+int main(int ac, char *av[]) {
+    std::cout << "SERVER!" << std::endl;
+    parser(ac, av);
+/*
     cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
          << "CMD_PORT:" << CMD_PORT << "\n"
          << "MAX_SPACE:" << MAX_SPACE << "\n"
          << "SHRD_FLDR:" << SHRD_FLDR << "\n"
-         << "TIMEOUT:" << TIMEOUT << "\n";
+         << "TIMEOUT:" << TIMEOUT << "\n";*/
 
     if (fs::is_directory(SHRD_FLDR)) {
         load_files_names();
@@ -152,18 +160,14 @@ int main(int ac, char *av[]) {
     /* parsowanie argumentów programu */
 
     local_port = CMD_PORT;
+    multicast_dotted_address = (char *) MCAST_ADDR.c_str();
 
     /* otworzenie gniazda */
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
         syserr("socket");
 
-    /* podpięcie się do grupy rozsyłania (ang. multicast) */
-    ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-    if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
-        syserr("inet_aton");
-    if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
-        syserr("setsockopt");
+    set_sock_options(sock, ip_mreq, multicast_dotted_address);
 
     /* podpięcie się pod lokalny adres i port */
     local_address.sin_family = AF_INET;
@@ -172,16 +176,19 @@ int main(int ac, char *av[]) {
     if (bind(sock, (struct sockaddr *) &local_address, sizeof local_address) < 0)
         syserr("bind");
 
-    SIMPL_CMD* mess = new SIMPL_CMD;
+    cout << "polaczonao";
 
-
-    rcv_len = read(sock, mess, CMD_SIZE);
-    if (rcv_len < 0)
-        syserr("read");
-    else {
-        cout << mess->cmd;
+    char buffer[CMD_SIZE + 1000];
+    
+    /* czytanie tego, co odebrano */
+    for (i = 0; i < 1000; ++i) {
+        rcv_len = read(sock, buffer, sizeof buffer);
+        if (rcv_len < 0)
+            syserr("read");
+        else {
+            printf("read %zd bytes: %.*s\n", rcv_len, (int) rcv_len, buffer);
+        }
     }
-
     /* w taki sposób można odpiąć się od grupy rozsyłania */
     if (setsockopt(sock, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
         syserr("setsockopt");

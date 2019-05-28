@@ -10,12 +10,12 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include "helper.h"
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 using namespace std;
 
-constexpr size_t CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
 #define TTL_VALUE     4
 
 string MCAST_ADDR;// -g
@@ -25,18 +25,6 @@ short TIMEOUT = 5;// -t
 
 int used_space = 0;
 
-struct SIMPL_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
-};
-
-struct CMPLX_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    uint64_t param;
-    char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
-};
 
 
 void syserr(const char *fmt, ...) {
@@ -95,17 +83,30 @@ void parser(int ac, char *av[]) {
     catch (...) {
         cerr << "Exception of unknown type!\n";
     }
+
+    /* cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
+          << "CMD_PORT:" << CMD_PORT << "\n"
+          << "OUT_FLDR:" << OUT_FLDR << "\n"
+          << "TIMEOUT:" << TIMEOUT << "\n";
+ */
 }
 
+void set_sock_options(int &sock){
+    int optval;
+    /* uaktywnienie rozgłaszania (ang. broadcast) */
+    optval = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void*)&optval, sizeof optval) < 0)
+        syserr("setsockopt broadcast");
+
+    /* ustawienie TTL dla datagramów rozsyłanych do grupy */
+    optval = TTL_VALUE;
+    if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void*)&optval, sizeof optval) < 0)
+        syserr("setsockopt multicast ttl");
+}
 
 int main(int ac, char *av[]) {
-    std::cout << "Hello, World!" << std::endl;
+    std::cout << "CLIENT!" << std::endl;
     parser(ac, av);
-
-    cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
-         << "CMD_PORT:" << CMD_PORT << "\n"
-         << "OUT_FLDR:" << OUT_FLDR << "\n"
-         << "TIMEOUT:" << TIMEOUT << "\n";
 
     if (!fs::is_directory(OUT_FLDR)) {
         cerr << "There is no such directory.";
@@ -115,6 +116,8 @@ int main(int ac, char *av[]) {
     /* argumenty wywołania programu */
     char *remote_dotted_address;
     in_port_t remote_port;
+    char buffer[3000];
+    int length;
 
     /* zmienne i struktury opisujące gniazda */
     int sock, optval;
@@ -125,35 +128,33 @@ int main(int ac, char *av[]) {
     remote_dotted_address = (char *) MCAST_ADDR.c_str();
     remote_port = CMD_PORT;
 
+
     /* otworzenie gniazda */
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
         syserr("socket");
 
-    /* uaktywnienie rozgłaszania (ang. broadcast) */
-    optval = 1;
-    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void *) &optval, sizeof optval) < 0)
-        syserr("setsockopt broadcast");
-
-    /* ustawienie TTL dla datagramó w rozsyłanych do grupy */
-    optval = TTL_VALUE;
-    if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optval, sizeof optval) < 0)
-        syserr("setsockopt multicast ttl");
+    set_sock_options(sock);
 
     /* ustawienie adresu i portu odbiorcy */
     remote_address.sin_family = AF_INET;
     remote_address.sin_port = htons(remote_port);
     if (inet_aton(remote_dotted_address, &remote_address.sin_addr) == 0)
         syserr("inet_aton");
-    if (connect(sock, (struct sockaddr *) &remote_address, sizeof remote_address) < 0)
+    if (connect(sock, (struct sockaddr *)&remote_address, sizeof remote_address) < 0)
         syserr("connect");
 
-    SIMPL_CMD *mess = new SIMPL_CMD;
-    strcpy(mess->cmd, "HELLO");
 
     /* radosne rozgłaszanie czasu */
-    if (write(sock, mess, CMD_SIZE) != CMD_SIZE)
-        syserr("write");
+    for (int i = 0; i < 100; ++i) {
+        strcpy(buffer, "HELLO_xd");
+        length = strnlen(buffer, 100);
+        cout << "SZMAL: " <<  length << "PLN\n";
+        sleep(1);
+        if (write(sock, buffer, length) != length)
+            syserr("write");
+        sleep(2);
+    }
 
     /* koniec */
     close(sock);
