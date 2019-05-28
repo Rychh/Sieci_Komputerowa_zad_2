@@ -6,19 +6,21 @@
 #ifndef SIKI_HELPER_H
 #define SIKI_HELPER_H
 
-constexpr size_t CMD_SIZE = 1 << (1 << (1 << (1 << 1)));
+constexpr size_t CMD_SIZE = (1 << 16) - 31; // cos pomiedzy 31-25
 
-struct SIMPL_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
+union CMD {
+
+    struct SIMPL {
+        char cmd[10];
+        uint64_t cmd_seq;
+        char data[CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t)];
+    } SIMPL;
+
+    struct CMPLX {
+        char cmd[10];
+        uint64_t cmd_seq;
+        uint64_t param;
+        char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
+    } CMPLX;
 };
-
-struct CMPLX_CMD {
-    char cmd[10];
-    uint64_t cmd_seq;
-    uint64_t param;
-    char data[CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t)];
-};
-
 #endif //SIKI_HELPER_H

@@ -179,15 +179,25 @@ int main(int ac, char *av[]) {
     cout << "polaczonao";
 
     char buffer[CMD_SIZE + 1000];
-    
+    CMD mess;
+
+
+
     /* czytanie tego, co odebrano */
     for (i = 0; i < 1000; ++i) {
-        rcv_len = read(sock, buffer, sizeof buffer);
+        rcv_len = read(sock, &mess, CMD_SIZE);
         if (rcv_len < 0)
             syserr("read");
         else {
-            printf("read %zd bytes: %.*s\n", rcv_len, (int) rcv_len, buffer);
+            printf("read %zd bytes: %.*s\n", rcv_len, 10, mess.SIMPL.cmd);
         }
+        strcpy(mess.CMPLX.cmd, "GOOD_DAY");
+        mess.CMPLX.param = MAX_SPACE - used_space;
+        strcpy(mess.CMPLX.data, MCAST_ADDR.c_str());
+
+
+
+
     }
     /* w taki sposób można odpiąć się od grupy rozsyłania */
     if (setsockopt(sock, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
