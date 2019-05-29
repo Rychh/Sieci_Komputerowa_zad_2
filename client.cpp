@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include "helper.h"
 
 namespace po = boost::program_options;
@@ -103,23 +104,91 @@ void set_sock_options(int &sock) {
         syserr("setsockopt multicast ttl");
 }
 
+void podejscie_dwa() {
+    int sock;
+    struct addrinfo addr_hints;
+    struct addrinfo *addr_result;
+    char *remote_dotted_address = (char *) MCAST_ADDR.c_str();
+
+    int i, flags, sflags;
+//    char buffer[BUFFER_SIZE];
+    size_t len;
+    ssize_t snd_len, rcv_len;
+    struct sockaddr_in my_address;
+    struct sockaddr_in srvr_address;
+    socklen_t rcva_len;
+
+    // 'converting' host/port in string to struct addrinfo
+    (void) memset(&addr_hints, 0, sizeof(struct addrinfo));
+    addr_hints.ai_family = AF_INET; // IPv4
+    addr_hints.ai_socktype = SOCK_DGRAM;
+    addr_hints.ai_protocol = IPPROTO_UDP;
+    addr_hints.ai_flags = 0;
+    addr_hints.ai_addrlen = 0;
+    addr_hints.ai_addr = NULL;
+    addr_hints.ai_canonname = NULL;
+    addr_hints.ai_next = NULL;
+    if (getaddrinfo(remote_dotted_address, NULL, &addr_hints, &addr_result) != 0) {
+        syserr("getaddrinfo");
+    }
+
+    my_address.sin_family = AF_INET; // IPv4
+    my_address.sin_addr.s_addr =
+            ((struct sockaddr_in *) (addr_result->ai_addr))->sin_addr.s_addr; // address IP
+    my_address.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
+
+    freeaddrinfo(addr_result);
+
+    sock = socket(PF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        syserr("socket");
+
+    while(1) {
+        string s;
+        cin >> s;
+        CMD mess;
+        strcpy(mess.SIMPL.cmd, "REMOVE");
+        strcpy(mess.SIMPL.data, s.c_str());
+
+        sflags = 0;
+        rcva_len = (socklen_t) sizeof(my_address);
+        snd_len = sendto(sock, &mess, sizeof(CMD), sflags,
+                         (struct sockaddr *) &my_address, rcva_len);
+        if (snd_len != (ssize_t) sizeof(mess)) {
+            syserr("partial / failed write");
+        }
+
+        cout << "Wyslałem: { cmd:" << mess.SIMPL.cmd << " ; bitow:" << snd_len << "}\n";
+/*
+        flags = 0;
+        rcva_len = (socklen_t) sizeof(srvr_address);
+        rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
+                           (struct sockaddr *) &srvr_address, &rcva_len);
+
+        if (rcv_len < 0) {
+            syserr("read");
+        }
+
+        cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << rcv_len << "}\n";*/
+        cout << "KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___\n";
+    }
+}
+
+
 int main(int ac, char *av[]) {
     std::cout << "CLIENT!" << std::endl;
     parser(ac, av);
     CMD cos;
+    struct sockaddr_in my_address;
 
-
-    cout <<"CMD_SIZE: "<< CMD_SIZE <<"\n";
-    cout<<"sizeof(CMD): "<< sizeof(CMD) << "\n";
-    cout <<"COS: "<<  sizeof(cos)<< "\n";
-    cout <<"COS.SIMPL.data: "<<  sizeof(cos.SIMPL.data)<< "\n";
-    cout <<"COS.CMPLS.data: "<<  sizeof(cos.CMPLX.data)<< "\n";
 
     if (!fs::is_directory(OUT_FLDR)) {
         cerr << "There is no such directory.";
         exit(1);
     }
-
+    podejscie_dwa();
+    cout << "wyszedlem z podejscia 2";
+    return 0;
     /* argumenty wywołania programu */
     char *remote_dotted_address;
     in_port_t remote_port;
@@ -153,7 +222,7 @@ int main(int ac, char *av[]) {
         syserr("connect");
 
     CMD mess;
-    strcpy(mess.SIMPL.cmd,"HELLO" );
+    strcpy(mess.SIMPL.cmd, "HELLO");
 
     /* radosne rozgłaszanie czasu */
     cout << "SZMAL: " << sizeof(CMD) << "PLN\n";
@@ -161,10 +230,10 @@ int main(int ac, char *av[]) {
     if (write(sock, &mess, sizeof(CMD)) != sizeof(CMD))
         syserr("write");
 
-    cout << "Przelałem, czekam na: " <<  sizeof(CMD)<< "\n";
+    cout << "Przelałem, czekam na: " << sizeof(CMD) << "\n";
 
     ssize_t rcv_len = read(sock, &mess, 1);
-    cout <<rcv_len<< " otrzymalem\n";
+    cout << rcv_len << " otrzymalem\n";
 
     if (rcv_len < 0)
         syserr("read");
