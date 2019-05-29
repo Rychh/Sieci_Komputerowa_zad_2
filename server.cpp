@@ -11,6 +11,13 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include "helper.h"
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <stdarg.h>
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
@@ -25,10 +32,17 @@ short TIMEOUT = 5;// -t
 int used_space = 0;
 
 void syserr(const char *fmt, ...) {
-    fprintf(stderr, "ERROR: ");
-    exit(EXIT_FAILURE);
-}//TODO
+    va_list fmt_args;
+    int err = errno;
 
+    fprintf(stderr, "ERROR: ");
+
+    va_start(fmt_args, fmt);
+    vfprintf(stderr, fmt, fmt_args);
+    va_end (fmt_args);
+    fprintf(stderr, " (%d; %s)\n", err, strerror(err));
+    exit(EXIT_FAILURE);
+}
 
 void parser(int ac, char *av[]) {
     try {
@@ -87,16 +101,23 @@ void parser(int ac, char *av[]) {
     catch (...) {
         cerr << "Exception of unknown type!\n";
     }
+    /*
+    cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
+         << "CMD_PORT:" << CMD_PORT << "\n"
+         << "MAX_SPACE:" << MAX_SPACE << "\n"
+         << "SHRD_FLDR:" << SHRD_FLDR << "\n"
+         << "TIMEOUT:" << TIMEOUT << "\n";*/
+
 }
 
 void load_files_names() {
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
-        cout << itr->path() << ' '; // display filename only //TODO
+//        cout << itr->path() << ' '; // display filename only //TODO
         if (is_regular_file(itr->status())) {
-            cout << " [" << file_size(itr->path()) << ']'; //TODO
+//            cout << " [" << file_size(itr->path()) << ']'; //TODO
             used_space += file_size(itr->path());
         }
-        cout << '\n';
+//        cout << '\n';
     }
 }
 
@@ -107,30 +128,35 @@ void set_sock_options(int &sock, struct ip_mreq &ip_mreq, char *multicast_dotted
     if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
         syserr("inet_aton");
 
-    /* podpięcie się do grupy rozsyłania (ang. multicast) */
-    ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-
-    if (inet_aton(multicast_dotted_address, &ip_mreq.imr_multiaddr) == 0)
-        syserr("inet_aton");
-
     if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)
         syserr("setsockopt");
 
-    int yes = 1;//TODO zmiana nazwy
+    int optVal = 1;
 
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void *) &optVal, sizeof(optVal)) < 0)
         syserr("setsockopt");
+
+    optVal = 4;
+    if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optVal, sizeof(optVal)) < 0)
+        syserr("setsockopt");
+
 }
 
 int main(int ac, char *av[]) {
-    std::cout << "SERVER!" << std::endl;
+    struct sockaddr_in server_address;
+    struct sockaddr_in client_address;
+    socklen_t snda_len, rcva_len;
+
+    std::cout << "SERVER! <--" << std::endl;
     parser(ac, av);
-/*
-    cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
-         << "CMD_PORT:" << CMD_PORT << "\n"
-         << "MAX_SPACE:" << MAX_SPACE << "\n"
-         << "SHRD_FLDR:" << SHRD_FLDR << "\n"
-         << "TIMEOUT:" << TIMEOUT << "\n";*/
+    CMD cos;
+
+    cout << "CMD_SIZE: " << CMD_SIZE << "\n";
+    cout << "sizeof(CMD): " << sizeof(CMD) << "\n";
+    cout << "COS: " << sizeof(cos) << "\n";
+    cout << "COS.SIMPL.data: " << sizeof(cos.SIMPL.data) << "\n";
+    cout << "COS.CMPLS.data: " << sizeof(cos.CMPLX.data) << "\n";
+
 
     if (fs::is_directory(SHRD_FLDR)) {
         load_files_names();
@@ -178,14 +204,43 @@ int main(int ac, char *av[]) {
 
     cout << "polaczonao";
 
-    char buffer[CMD_SIZE + 1000];
+//    char buffer[CMD_SIZE + 1000];
     CMD mess;
 
 
 
     /* czytanie tego, co odebrano */
     for (i = 0; i < 1000; ++i) {
+        cout << "Czekam przed recv\n";
+
+        rcva_len = (socklen_t) sizeof(client_address);
+        snda_len = (socklen_t) sizeof(client_address);
+        int flag = 0;
+        ssize_t len = recvfrom(sock, &mess, sizeof(CMD), flag,
+                               (struct sockaddr *) &client_address, &rcva_len);
+        if (len < 0)
+            syserr("error on datagram from client socket");
+        else {
+            printf("read %zd bytes: %.*s\n", len, 10, mess.SIMPL.cmd);
+
+            strcpy(mess.CMPLX.cmd, "GOOD_DAY");
+            mess.CMPLX.param = MAX_SPACE - used_space;
+            strcpy(mess.CMPLX.data, MCAST_ADDR.c_str());
+
+            cout << "Przed sendto\n";
+//            printf("Napis: %.*s\n", 8, client_address.sin_zero);
+//            cout << client_address.sin_zero[0] << "\n";
+
+            ssize_t snd_len = sendto(sock, &mess, sizeof(CMD), flag,
+                                     (struct sockaddr *) &client_address, snda_len);
+
+            cout<<"wysłałem: "<<snd_len<<"\n";
+            if (snd_len != sizeof(CMD))
+                syserr("error on sending datagram to client socket");
+        }
+/*
         rcv_len = read(sock, &mess, CMD_SIZE);
+
         if (rcv_len < 0)
             syserr("read");
         else {
@@ -195,9 +250,12 @@ int main(int ac, char *av[]) {
         mess.CMPLX.param = MAX_SPACE - used_space;
         strcpy(mess.CMPLX.data, MCAST_ADDR.c_str());
 
+        cout<<"HMMM??\n";
 
+        if (write(sock, &mess, CMD_SIZE) != CMD_SIZE)
+            syserr("write");
 
-
+*/
     }
     /* w taki sposób można odpiąć się od grupy rozsyłania */
     if (setsockopt(sock, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *) &ip_mreq, sizeof ip_mreq) < 0)

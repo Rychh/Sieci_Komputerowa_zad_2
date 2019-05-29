@@ -106,6 +106,14 @@ void set_sock_options(int &sock) {
 int main(int ac, char *av[]) {
     std::cout << "CLIENT!" << std::endl;
     parser(ac, av);
+    CMD cos;
+
+
+    cout <<"CMD_SIZE: "<< CMD_SIZE <<"\n";
+    cout<<"sizeof(CMD): "<< sizeof(CMD) << "\n";
+    cout <<"COS: "<<  sizeof(cos)<< "\n";
+    cout <<"COS.SIMPL.data: "<<  sizeof(cos.SIMPL.data)<< "\n";
+    cout <<"COS.CMPLS.data: "<<  sizeof(cos.CMPLX.data)<< "\n";
 
     if (!fs::is_directory(OUT_FLDR)) {
         cerr << "There is no such directory.";
@@ -117,6 +125,7 @@ int main(int ac, char *av[]) {
     in_port_t remote_port;
     char buffer[3000];
     int length;
+
 
     /* zmienne i struktury opisujące gniazda */
     int sock, optval;
@@ -147,12 +156,23 @@ int main(int ac, char *av[]) {
     strcpy(mess.SIMPL.cmd,"HELLO" );
 
     /* radosne rozgłaszanie czasu */
-    cout << "SZMAL: " << CMD_SIZE << "PLN\n";
-    sleep(1);
+    cout << "SZMAL: " << sizeof(CMD) << "PLN\n";
 
-    if (write(sock, &mess, CMD_SIZE) != CMD_SIZE)
+    if (write(sock, &mess, sizeof(CMD)) != sizeof(CMD))
         syserr("write");
-    
+
+    cout << "Przelałem, czekam na: " <<  sizeof(CMD)<< "\n";
+
+    ssize_t rcv_len = read(sock, &mess, 1);
+    cout <<rcv_len<< " otrzymalem\n";
+
+    if (rcv_len < 0)
+        syserr("read");
+    else {
+        printf("read %zd bytes: %.*s\n", rcv_len, 10, mess.CMPLX.cmd);
+        printf("wolne miejsca %d bytes: %s\n", mess.CMPLX.param, 10, mess.CMPLX.data);
+    }
+
 
     /* koniec */
     close(sock);
