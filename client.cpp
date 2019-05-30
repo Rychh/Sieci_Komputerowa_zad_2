@@ -25,6 +25,7 @@ string OUT_FLDR = ".";// -f
 short TIMEOUT = 5;// -t
 
 int used_space = 0;
+uint64_t cmd_seq = 5;
 
 
 void syserr(const char *fmt, ...) {
@@ -104,7 +105,51 @@ void set_sock_options(int &sock) {
         syserr("setsockopt multicast ttl");
 }
 
-void podejscie_dwa() {
+void operation_discover() {
+
+}
+
+void send_cmd(int sock, struct sockaddr_in &addr, const string &cmd, const string &data, uint64_t param = 0) {
+    socklen_t addr_len;
+    ssize_t snd_len;
+    int flag = 0;
+    CMD mess;
+
+    memset(mess.CMPLX.cmd, 0, 10);
+    strncpy(mess.CMPLX.cmd, cmd.c_str(), 10);
+    mess.CMPLX.cmd_seq = htobe64(cmd_seq);
+    if (param != 0) {
+        mess.CMPLX.param = param;
+        strncpy(mess.CMPLX.data, data.c_str(), CMD_CMPLX_DATA_SIZE);
+    } else {
+        strncpy(mess.SIMPL.data, data.c_str(), CMD_SIMPL_DATA_SIZE);
+    }
+
+    addr_len = (socklen_t) sizeof(addr);
+    snd_len = sendto(sock, &mess, sizeof(CMD), flag,
+                     (struct sockaddr *) &addr, addr_len);
+
+    if (snd_len != (ssize_t) sizeof(CMD)) {
+        syserr("partial / failed write");
+    }
+
+    cout << "Wyslałem: { cmd:" << mess.SIMPL.cmd << " ; bitow:" << snd_len << "}\n";
+}
+
+
+int main(int ac, char *av[]) {
+    std::cout << "CLIENT!" << std::endl;
+    parser(ac, av);
+    CMD cos;
+    struct sockaddr_in my_address;
+
+
+    if (!fs::is_directory(OUT_FLDR)) {
+        cerr << "There is no such directory.";
+        exit(1);
+    }
+
+    cout << "wyszedlem z podejscia 2";
     int sock;
     struct addrinfo addr_hints;
     struct addrinfo *addr_result;
@@ -114,7 +159,6 @@ void podejscie_dwa() {
 //    char buffer[BUFFER_SIZE];
     size_t len;
     ssize_t snd_len, rcv_len;
-    struct sockaddr_in my_address;
     struct sockaddr_in srvr_address;
     socklen_t rcva_len;
 
@@ -143,105 +187,52 @@ void podejscie_dwa() {
     if (sock < 0)
         syserr("socket");
 
-    while(1) {
-        string s;
-        cin >> s;
-        CMD mess;
-        strcpy(mess.SIMPL.cmd, "REMOVE");
-        strcpy(mess.SIMPL.data, s.c_str());
-
-        sflags = 0;
-        rcva_len = (socklen_t) sizeof(my_address);
-        snd_len = sendto(sock, &mess, sizeof(CMD), sflags,
-                         (struct sockaddr *) &my_address, rcva_len);
-        if (snd_len != (ssize_t) sizeof(mess)) {
-            syserr("partial / failed write");
+    for (int i = 0; i < 100; i++) {
+        string a, b;
+        cin >> a;
+        if (a != "d")
+            cin >> b;
+        if (a == "d")
+            send_cmd(sock, my_address, "HELLO", b);
+        if (a == "s") {
+            if (b == "0")
+                b = "";
+            send_cmd(sock, my_address, "LIST", b);
         }
+        if (a == "f")
+            send_cmd(sock, my_address, "GET", b);
+        if (a == "u")
+            send_cmd(sock, my_address, "ADD", b);
+        if (a == "r")
+            send_cmd(sock, my_address, "DEL", b);
+        else {
+            /*     sflags = 0;
+                 rcva_len = (socklen_t) sizeof(my_address);
+                 snd_len = sendto(sock, &mess, sizeof(CMD), sflags,
+                                  (struct sockaddr *) &my_address, rcva_len);
+                 if (snd_len != (ssize_t) sizeof(mess)) {
+                     syserr("partial / failed write");
+                 }*/
+            CMD mess;
+            flags = 0;
+            rcva_len = (socklen_t) sizeof(srvr_address);
+            rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
+                               (struct sockaddr *) &srvr_address, &rcva_len);
 
-        cout << "Wyslałem: { cmd:" << mess.SIMPL.cmd << " ; bitow:" << snd_len << "}\n";
-/*
-        flags = 0;
-        rcva_len = (socklen_t) sizeof(srvr_address);
-        rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
-                           (struct sockaddr *) &srvr_address, &rcva_len);
+            if (rcv_len < 0) {
+                syserr("read");
+            }
 
-        if (rcv_len < 0) {
-            syserr("read");
+            cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << rcv_len
+                 << "}\n";
+            if (cmd_seq != be64toh(mess.SIMPL.cmd_seq)) {
+                cout << "ZLE!!! cmd_seq!!!!!!!!!!\n";
+                cout << "ORGINAL: " << cmd_seq << "; SIMPL: " << be64toh(mess.SIMPL.cmd_seq) << "; CMPLx:"
+                     << be64toh(mess.SIMPL.cmd_seq) << "\n";
+            }
         }
-
-        cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << rcv_len << "}\n";*/
-        cout << "KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___\n";
+        cout << "KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___\n\n";
     }
-}
-
-
-int main(int ac, char *av[]) {
-    std::cout << "CLIENT!" << std::endl;
-    parser(ac, av);
-    CMD cos;
-    struct sockaddr_in my_address;
-
-
-    if (!fs::is_directory(OUT_FLDR)) {
-        cerr << "There is no such directory.";
-        exit(1);
-    }
-    podejscie_dwa();
-    cout << "wyszedlem z podejscia 2";
-    return 0;
-    /* argumenty wywołania programu */
-    char *remote_dotted_address;
-    in_port_t remote_port;
-    char buffer[3000];
-    int length;
-
-
-    /* zmienne i struktury opisujące gniazda */
-    int sock, optval;
-//  struct sockaddr_in local_address;
-    struct sockaddr_in remote_address;
-
-    /* parsowanie argumentów programu */
-    remote_dotted_address = (char *) MCAST_ADDR.c_str();
-    remote_port = CMD_PORT;
-
-
-    /* otworzenie gniazda */
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        syserr("socket");
-
-    set_sock_options(sock);
-
-    /* ustawienie adresu i portu odbiorcy */
-    remote_address.sin_family = AF_INET;
-    remote_address.sin_port = htons(remote_port);
-    if (inet_aton(remote_dotted_address, &remote_address.sin_addr) == 0)
-        syserr("inet_aton");
-    if (connect(sock, (struct sockaddr *) &remote_address, sizeof remote_address) < 0)
-        syserr("connect");
-
-    CMD mess;
-    strcpy(mess.SIMPL.cmd, "HELLO");
-
-    /* radosne rozgłaszanie czasu */
-    cout << "SZMAL: " << sizeof(CMD) << "PLN\n";
-
-    if (write(sock, &mess, sizeof(CMD)) != sizeof(CMD))
-        syserr("write");
-
-    cout << "Przelałem, czekam na: " << sizeof(CMD) << "\n";
-
-    ssize_t rcv_len = read(sock, &mess, 1);
-    cout << rcv_len << " otrzymalem\n";
-
-    if (rcv_len < 0)
-        syserr("read");
-    else {
-        printf("read %zd bytes: %.*s\n", rcv_len, 10, mess.CMPLX.cmd);
-        printf("wolne miejsca %d bytes: %s\n", mess.CMPLX.param, 10, mess.CMPLX.data);
-    }
-
 
     /* koniec */
     close(sock);

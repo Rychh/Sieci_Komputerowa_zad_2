@@ -32,12 +32,21 @@ short TIMEOUT = 5;// -t
 int used_space = 0;
 
 //PYTANIA:
-//Czy robić nowe mess?
-//Jak ogółem postawić server? wielowątkowo
-// TCP?? jak? Wątki?
+//Czy robić nowe mess? - Nie trzeba bo forki "tworzą nowe".
+//Jak ogółem postawić server? wielowątkowo? -Tak!
+//TCP?? jak? Wątki?
 //Zamykanie?
 
 
+//ZADANIA:
+//OK-Parser dla servera
+//OK-Zrobić normalnie podjscie 2
+//przeczytac jak ma działac client cos ma parsować?
+//Na zrobić samo przesyłanie plikow danych do clienta a on tylko wypisuje co widzi
+//Przeczytac stare zadanko c TCP
+//TCP_1
+//TCP_2
+//
 void syserr(const char *fmt, ...) {
     va_list fmt_args;
     int err = errno;
@@ -161,6 +170,17 @@ void send_to_client(int sock, CMD &mess, struct sockaddr_in &client_address) {
         syserr("error on sending datagram to client socket");
 }
 
+bool filename_exist(string filename) {
+    /* Sprawdzenie czy nie istnieje już plik o tej nazwie.*/
+    for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
+        if (is_regular_file(itr->status())
+            && itr->path().filename().compare(filename) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Odpowiedź serwera na komunikat "HELLO" */
 void cmd_hello(int sock, CMD &mess, struct sockaddr_in &client_address) {
     uint64_t cmd_seq = mess.SIMPL.cmd_seq;
@@ -221,11 +241,22 @@ void cmd_list(int sock, CMD &mess, struct sockaddr_in &client_address) {
     cout << "Wysłałem info o " << tmp << " plikach\n";
 }
 
-
 /* Odpowiedź serwera na komunikat "GET" */
 void cmd_get(int sock, CMD &mess, struct sockaddr_in &client_address) {
     uint64_t cmd_seq = mess.SIMPL.cmd_seq;
-    memset(mess.CMPLX.cmd, 0, 10);
+    string filename = mess.SIMPL.data;
+
+    if (!filename_exist(filename)) {
+        memset(mess.CMPLX.cmd, 0, 10);
+        strcpy(mess.CMPLX.cmd, "CONNECT_ME");
+        mess.CMPLX.param = htobe64(6666);//TODO jakis port?
+        strcpy(mess.CMPLX.data, filename.c_str());
+        mess.CMPLX.cmd_seq = cmd_seq;
+
+
+    } else {
+        //TODO jezeli dany plik nie istnieje to nic nie wysylam ale odnotowuje
+    }
 
 }
 
@@ -246,25 +277,16 @@ void cmd_remove(CMD &mess) {
         cout << "Nic nie usunalem\n";
 }
 
-
 /* Odpowiedź serwera na komunikat "ADD" */
 void cmd_add(int sock, CMD &mess, struct sockaddr_in &client_address) {
     uint64_t cmd_seq = mess.SIMPL.cmd_seq;
     string filename = mess.SIMPL.data;
-    bool exist = false;
     cout << "Chce dodać: " << filename << "\n";
-
-    /* Sprawdzenie czy nie istnieje już plik o tej nazwie.*/
-    for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator() && !exist; ++itr) {
-        if (is_regular_file(itr->status())
-            && itr->path().filename().compare(mess.SIMPL.data) == 0) {
-            exist = true;
-        }
-    }
 
     /* Sprawdzenie czy możemy dodać plik */
     if (be64toh(mess.CMPLX.param) > MAX_SPACE - used_space ||
-        filename.size() == 0 || (filename.compare("/") == 0) || exist) {
+        filename.size() == 0 || (filename.compare("/") == 0) ||
+        filename_exist(filename)) {
         cout << "No niestety nie wyszło :)\n";
         memset(mess.SIMPL.cmd, 0, 10);
         strcpy(mess.SIMPL.cmd, "NO_WAY");
@@ -348,6 +370,8 @@ int main(int ac, char *av[]) {
 
     /* czytanie tego, co odebrano */
     for (i = 0; i < 1000; ++i) {
+
+        //TODO zawsze robić nowey sockem
         cout << "-----------------------------------------------------\nCzekam przed recv\n";
 
         rcva_len = (socklen_t) sizeof(client_address);
@@ -360,20 +384,19 @@ int main(int ac, char *av[]) {
             syserr("error on datagram from client socket");
         else {
             cout << "Odebrałem:  { cmd:" << mess.SIMPL.cmd << "; bitow:" << len << "}\n";
-
-//            cmd_hello(sock, mess, client_address);
-//            cmd_list(sock, mess, client_address);
-
-            cmd_remove(mess);
-//            ssize_t snd_len = sendto(sock, &mess, sizeof(CMD), flag,
-//                                     (struct sockaddr *) &client_address, snda_len);
-//
-//            cout << "Wysłalem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << snd_len
-//                 << "; }\n";
-//
-//            if (snd_len != sizeof(CMD))
-//                syserr("error on sending datagram to client socket");
-
+            if (strcmp(mess.SIMPL.cmd, "HELLO") == 0)
+                cmd_hello(sock, mess, client_address);
+            else if (strcmp(mess.SIMPL.cmd, "LIST") == 0)
+                cmd_list(sock, mess, client_address);
+            else if (strcmp(mess.SIMPL.cmd, "GET") == 0)
+                cmd_get(sock, mess, client_address);
+            else if (strcmp(mess.SIMPL.cmd, "DEL") == 0)
+                cmd_remove(mess);
+            else if (strcmp(mess.SIMPL.cmd, "ADD") == 0)
+                cmd_add(sock, mess, client_address);
+            else
+                cout << "Coś nie pykło!!!\nZły komunikat.\n";
+            cout << "_SERVER__SERVER__SERVER__SERVER__SERVER__SERVER__SERVER_\n\n ";
         }
     }
     /* w taki sposób można odpiąć się od grupy rozsyłania */
