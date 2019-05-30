@@ -11,7 +11,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <cstdarg>
 #include "helper.h"
+#include <poll.h>
+#include <sys/time.h>
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
@@ -29,9 +32,17 @@ uint64_t cmd_seq = 5;
 
 
 void syserr(const char *fmt, ...) {
+    va_list fmt_args;
+    int err = errno;
+
     fprintf(stderr, "ERROR: ");
+
+    va_start(fmt_args, fmt);
+    vfprintf(stderr, fmt, fmt_args);
+    va_end (fmt_args);
+    fprintf(stderr, " (%d; %s)\n", err, strerror(err));
     exit(EXIT_FAILURE);
-}//TODO
+}
 
 void parser(int ac, char *av[]) {
     try {
@@ -92,23 +103,6 @@ void parser(int ac, char *av[]) {
  */
 }
 
-void set_sock_options(int &sock) {
-    int optval;
-    /* uaktywnienie rozgłaszania (ang. broadcast) */
-    optval = 1;
-    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void *) &optval, sizeof optval) < 0)
-        syserr("setsockopt broadcast");
-
-    /* ustawienie TTL dla datagramów rozsyłanych do grupy */
-    optval = TTL_VALUE;
-    if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optval, sizeof optval) < 0)
-        syserr("setsockopt multicast ttl");
-}
-
-void operation_discover() {
-
-}
-
 void send_cmd(int sock, struct sockaddr_in &addr, const string &cmd, const string &data, uint64_t param = 0) {
     socklen_t addr_len;
     ssize_t snd_len;
@@ -136,20 +130,13 @@ void send_cmd(int sock, struct sockaddr_in &addr, const string &cmd, const strin
     cout << "Wyslałem: { cmd:" << mess.SIMPL.cmd << " ; bitow:" << snd_len << "}\n";
 }
 
-
 int main(int ac, char *av[]) {
     std::cout << "CLIENT!" << std::endl;
     parser(ac, av);
     CMD cos;
     struct sockaddr_in my_address;
-
-
-    if (!fs::is_directory(OUT_FLDR)) {
-        cerr << "There is no such directory.";
-        exit(1);
-    }
-
-    cout << "wyszedlem z podejscia 2";
+    size_t N = 1;
+    struct timeval current, start;
     int sock;
     struct addrinfo addr_hints;
     struct addrinfo *addr_result;
@@ -162,6 +149,19 @@ int main(int ac, char *av[]) {
     struct sockaddr_in srvr_address;
     socklen_t rcva_len;
 
+    struct pollfd fds[N];
+
+    for (int i = 0; i < N; ++i) {
+        fds[i].fd = -1;
+        fds[i].events = POLLIN;
+        fds[i].revents = 0;
+    }
+
+
+    if (!fs::is_directory(OUT_FLDR)) {
+        cerr << "There is no such directory.";
+        exit(1);
+    }
     // 'converting' host/port in string to struct addrinfo
     (void) memset(&addr_hints, 0, sizeof(struct addrinfo));
     addr_hints.ai_family = AF_INET; // IPv4
@@ -175,12 +175,10 @@ int main(int ac, char *av[]) {
     if (getaddrinfo(remote_dotted_address, NULL, &addr_hints, &addr_result) != 0) {
         syserr("getaddrinfo");
     }
-
     my_address.sin_family = AF_INET; // IPv4
     my_address.sin_addr.s_addr =
             ((struct sockaddr_in *) (addr_result->ai_addr))->sin_addr.s_addr; // address IP
     my_address.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
-
     freeaddrinfo(addr_result);
 
     sock = socket(PF_INET, SOCK_DGRAM, 0);
@@ -206,29 +204,47 @@ int main(int ac, char *av[]) {
         if (a == "r")
             send_cmd(sock, my_address, "DEL", b);
         else {
-            /*     sflags = 0;
-                 rcva_len = (socklen_t) sizeof(my_address);
-                 snd_len = sendto(sock, &mess, sizeof(CMD), sflags,
-                                  (struct sockaddr *) &my_address, rcva_len);
-                 if (snd_len != (ssize_t) sizeof(mess)) {
-                     syserr("partial / failed write");
-                 }*/
-            CMD mess;
-            flags = 0;
-            rcva_len = (socklen_t) sizeof(srvr_address);
-            rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
-                               (struct sockaddr *) &srvr_address, &rcva_len);
+            gettimeofday(&start, 0);
+            gettimeofday(&current, 0);
+            __time_t wait_ms = TIMEOUT * 1000;
+            while (wait_ms > 0) {
+                struct pollfd fd;
+                int ret;
+                CMD mess;
+                flags = 0;
+                rcva_len = (socklen_t) sizeof(srvr_address);
 
-            if (rcv_len < 0) {
-                syserr("read");
-            }
+                fd.fd = sock; // your socket handler
+                fd.events = POLLIN;
+                ret = poll(&fd, 1, wait_ms); // 1 second for timeout
+                switch (ret) {
+                    case -1:
+                        cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
+                        // Error
+                        break;
+                    case 0:
+                        cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
+                        break;
+                    default:
+                        rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
+                                           (struct sockaddr *) &srvr_address, &rcva_len);// get your data
+                        if (rcv_len < 0) {
+                            syserr("read");
+                        }
+                        cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:"
+                             << rcv_len << "}\n";
+                        if (cmd_seq != be64toh(mess.SIMPL.cmd_seq)) {
+                            cout << "ZLE!!! cmd_seq!!!!!!!!!!\n";
+                            cout << "ORGINAL: " << cmd_seq << "; SIMPL: " << be64toh(mess.SIMPL.cmd_seq) << "; CMPLx:"
+                                 << be64toh(mess.SIMPL.cmd_seq) << "\n";
+                        }
+                        break;
 
-            cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << rcv_len
-                 << "}\n";
-            if (cmd_seq != be64toh(mess.SIMPL.cmd_seq)) {
-                cout << "ZLE!!! cmd_seq!!!!!!!!!!\n";
-                cout << "ORGINAL: " << cmd_seq << "; SIMPL: " << be64toh(mess.SIMPL.cmd_seq) << "; CMPLx:"
-                     << be64toh(mess.SIMPL.cmd_seq) << "\n";
+                }
+                gettimeofday(&current, 0);
+                wait_ms = (start.tv_sec + TIMEOUT - current.tv_sec) * 1000 +
+                        (start.tv_usec - current.tv_usec) / 1000;
+
             }
         }
         cout << "KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___\n\n";

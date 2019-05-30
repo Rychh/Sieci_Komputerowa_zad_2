@@ -37,16 +37,40 @@ int used_space = 0;
 //TCP?? jak? Wątki?
 //Zamykanie?
 
-
+//TODO
 //ZADANIA:
-//OK-Parser dla servera
-//OK-Zrobić normalnie podjscie 2
-//przeczytac jak ma działac client cos ma parsować?
 //Na zrobić samo przesyłanie plikow danych do clienta a on tylko wypisuje co widzi
-//Przeczytac stare zadanko c TCP
-//TCP_1
+
+/* Po prau sekundach zamykanie czekania na odpowiedź
+ * */
+
+/* Parser
+ * Dowiedzieć się jaki najlepiej użyć do client
+ * Client
+ * Może zmienić inne parsery
+ * */
+
+/* Obsługa zapytań clienta
+ * jakas strukturka do hello
+ * hello
+ * FETch
+ * serach
+ * remove
+ * i cos tam jeszcze
+ * */
+
+/* TCP
+ * jak zrobic?
+ * przeczytac jak zrobiłem to w zad1
+ * TCP  server -> client
+ * TCP client -> server
+ * */
+
+/* Obsluga bledow
+ *
+ * */
 //TCP_2
-//
+
 void syserr(const char *fmt, ...) {
     va_list fmt_args;
     int err = errno;
@@ -137,7 +161,18 @@ void load_files_names() {
     }
 }
 
-void set_sock_options(int &sock, struct ip_mreq &ip_mreq, char *multicast_dotted_address) {
+int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short local_port) {
+    /* otworzenie gniazda */
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        syserr("socket");
+
+    /* podpięcie się pod lokalny adres i port */
+    struct sockaddr_in server_address;
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_address.sin_port = htons(local_port);
+
 
     /* podpięcie się do grupy rozsyłania (ang. multicast) */
     ip_mreq.imr_interface.s_addr = htonl(INADDR_ANY);
@@ -152,10 +187,13 @@ void set_sock_options(int &sock, struct ip_mreq &ip_mreq, char *multicast_dotted
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void *) &optVal, sizeof(optVal)) < 0)
         syserr("setsockopt");
 
-    optVal = 4;
+    optVal = 4; //TODO czy to potrzebne?
     if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optVal, sizeof(optVal)) < 0)
         syserr("setsockopt");
 
+    if (bind(sock, (struct sockaddr *) &server_address, sizeof server_address) < 0)
+        syserr("bind");
+    return sock;
 }
 
 void send_to_client(int sock, CMD &mess, struct sockaddr_in &client_address) {
@@ -316,9 +354,15 @@ int main(int ac, char *av[]) {
     socklen_t snda_len, rcva_len;
     CMD mess;
 
+    char *multicast_dotted_address;
+    in_port_t local_port;
+    int sock;
+    struct ip_mreq ip_mreq;
+    ssize_t rcv_len;
+    int i;
+
     std::cout << "SERVER! <--" << std::endl;
     parser(ac, av);
-
 
     if (fs::is_directory(SHRD_FLDR)) {
         load_files_names();
@@ -327,46 +371,13 @@ int main(int ac, char *av[]) {
         exit(1);
     }
 
-
     if (used_space > MAX_SPACE) {
         cerr << "Sry Za amało pamieci."; //TODO
         exit(1);
     }
-
-    /* argumenty wywołania programu */
-    char *multicast_dotted_address;
-    in_port_t local_port;
-
-    /* zmienne i struktury opisujące gniazda */
-    int sock;
-    struct sockaddr_in local_address;
-    struct ip_mreq ip_mreq;
-
-    /* zmienne obsługujące komunikację */
-    ssize_t rcv_len;
-    int i;
-
-    /* parsowanie argumentów programu */
-
-    local_port = CMD_PORT;
     multicast_dotted_address = (char *) MCAST_ADDR.c_str();
-
-    /* otworzenie gniazda */
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        syserr("socket");
-
-    /* podpięcie się pod lokalny adres i port */
-    local_address.sin_family = AF_INET;
-    local_address.sin_addr.s_addr = htonl(INADDR_ANY);
-    local_address.sin_port = htons(local_port);
-    if (bind(sock, (struct sockaddr *) &local_address, sizeof local_address) < 0)
-        syserr("bind");
-    set_sock_options(sock, ip_mreq, multicast_dotted_address);
-
-
+    sock = initSock(ip_mreq, multicast_dotted_address, CMD_PORT);
     cout << "polaczonao\n";
-
 
     /* czytanie tego, co odebrano */
     for (i = 0; i < 1000; ++i) {
@@ -379,6 +390,7 @@ int main(int ac, char *av[]) {
         ssize_t len = recvfrom(sock, &mess, sizeof(CMD), flag,
                                (struct sockaddr *) &client_address, &rcva_len);
 
+        sleep(TIMEOUT);
 
         if (len < 0)
             syserr("error on datagram from client socket");

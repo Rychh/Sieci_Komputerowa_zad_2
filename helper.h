@@ -12,18 +12,19 @@ constexpr size_t CMD_CMPLX_DATA_SIZE = CMD_SIZE - 10 * sizeof(char) - 2 * sizeof
 
 
 union CMD {
-
+    //TODO poczytac o packach by kompilator nie zmienił kolejności plików
     struct SIMPL {
         char cmd[10];
-        char data[CMD_SIMPL_DATA_SIZE];
         uint64_t cmd_seq;
+        char data[CMD_SIMPL_DATA_SIZE];
+
     } SIMPL;
 
     struct CMPLX {
         char cmd[10];
-        char data[CMD_CMPLX_DATA_SIZE];
         uint64_t cmd_seq;
         uint64_t param;
+        char data[CMD_CMPLX_DATA_SIZE];
     } CMPLX;
 };
 #endif //SIKI_HELPER_H
