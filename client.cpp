@@ -15,6 +15,8 @@
 #include <poll.h>
 #include <sys/time.h>
 #include <map>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "helper.h"
 #include "err.h"
 
@@ -24,15 +26,17 @@ using namespace std;
 
 #define TTL_VALUE     4
 
-string MCAST_ADDR;// -g
-int CMD_PORT;// -p
-string OUT_FLDR = ".";// -f
-short TIMEOUT = 5;// -t
+
+//TODO zmienic te wartosci!!
+string MCAST_ADDR = "239.10.11.12";// -g
+int CMD_PORT = 6665;// -p
+string OUT_FLDR = "folder_clienta/";// -f
+short TIMEOUT = 2;// -t
 
 int used_space = 0;
 uint64_t cmd_seq = 5;
 
-map<string, string> filenames;
+map<string, in_addr_t> filenames;
 
 
 void parser(int ac, char *av[]) {
@@ -106,7 +110,9 @@ void discover(int sock, struct sockaddr_in &my_addr) {
     gettimeofday(&current, 0);
     __time_t wait_ms = TIMEOUT * 1000;
     while (wait_ms > 0) {
-        socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
+        socklen_t
+                rcva_len = (socklen_t)
+                sizeof(srvr_addr);
         fd.fd = sock; // your socket handler
         fd.events = POLLIN;
         int ret = poll(&fd, 1, wait_ms); // 1 second for timeout
@@ -153,7 +159,9 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
     gettimeofday(&current, 0);
     __time_t wait_ms = TIMEOUT * 1000;
     while (wait_ms > 0) {
-        socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
+        socklen_t
+                rcva_len = (socklen_t)
+                sizeof(srvr_addr);
         fd.fd = sock; // your socket handler
         fd.events = POLLIN;
         int ret = poll(&fd, 1, wait_ms); // 1 second for timeout
@@ -177,7 +185,7 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
                     stringstream ss(mess.SIMPL.data);
                     while (ss >> filename) {
                         cout << filename << " (" << inet_ntoa(srvr_addr.sin_addr) << ")\n";
-                        filenames.insert(pair<string, string>(filename, inet_ntoa(srvr_addr.sin_addr)));
+                        filenames.insert(pair<string, in_addr_t>(filename, srvr_addr.sin_addr.s_addr));
                     }
                 } else {
                     cout << "\nNOPE\n\n"; //TODO jakis komunikat
@@ -197,6 +205,113 @@ void remove(int sock, struct sockaddr_in &my_addr, const string &filename) {
     } else {
         send_simpl_cmd(sock, my_addr, "DEL", cmd_seq, filename);
     }
+}
+
+
+void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
+    cout << "Jestem w pobieranko_z_serverwa\n";
+    struct addrinfo addr_hints;
+    struct addrinfo *addr_result;
+    struct in_addr srvr_ip;
+    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
+    string file_path = OUT_FLDR + filename;
+    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    int err;
+    int sock;
+
+    memset(&addr_hints, 0, sizeof(struct addrinfo));
+    addr_hints.ai_family = AF_INET; // IPv4
+    addr_hints.ai_socktype = SOCK_STREAM;
+    addr_hints.ai_protocol = IPPROTO_TCP;
+    cout << "Port?" << srvr_port << "\n";
+    //TODO nie wie czy odpowiedni port wysyłam host to kurwa chuj!@#$W$TQRTEHRTMHEJJYY%#@Q#
+
+    err = getaddrinfo(inet_ntoa(srvr_ip), to_string(srvr_port).c_str(), &addr_hints, &addr_result);
+    if (err == EAI_SYSTEM) { // system error
+        syserr("getaddrinfo: %s", gai_strerror(err));
+    } else if (err != 0) { // other error (host not found, etc.)
+        fatal("getaddrinfo: %s", gai_strerror(err));
+    }
+
+    // initialize socket according to getaddrinfo results
+    sock = socket(addr_result->ai_family, addr_result->ai_socktype, addr_result->ai_protocol);
+    if (sock < 0)
+        syserr("socket");
+    cout << "przed połączeniem\n";
+
+    // connect socket to the server
+    if (connect(sock, addr_result->ai_addr, addr_result->ai_addrlen) < 0)
+        syserr("connect");
+
+    freeaddrinfo(addr_result);
+    cout << "przed pobraniem\n";
+
+    ssize_t datasize = 0;
+    FILE *fd = fopen(file_path.c_str(), "wb");
+    do {
+        fwrite(&buffer, sizeof(char), datasize, fd);
+        datasize = read(sock, buffer, sizeof(buffer));
+        cout << "Read datasize = " << datasize << "\n";
+    } while (datasize > 0);
+    if (datasize == 0) {
+
+        cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
+    } else {
+        cout << "File " << filename << " downloading failed (" << inet_ntoa(srvr_ip) << ":" << srvr_port
+             << ") {opis_błędu}\n"; //TODO opis błędu
+
+        cout << "BLAD pobiernia!!\n";
+    }
+    fclose(fd);
+    close(sock);
+}
+
+void fetch(int sock, const string &filename) {
+    struct sockaddr_in srvr_addr;
+    in_addr_t ip;
+    struct pollfd fd;
+    int flags = 0;
+    uint64_t srvr_port = 0;
+
+    if (filenames.find(filename) != filenames.end()) {
+        CMD mess;
+        in_addr_t ip = filenames[filename];
+        srvr_addr.sin_family = AF_INET; // IPv4
+        srvr_addr.sin_addr.s_addr = ip; // address IP
+        srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
+        send_simpl_cmd(sock, srvr_addr, "GET", cmd_seq, filename);
+
+        socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
+        fd.fd = sock; // your socket handler
+        fd.events = POLLIN;
+        int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
+        switch (ret) {
+            case -1:
+                cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
+                // Error
+                break;
+            case 0:
+                cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
+                break;
+            default:
+                ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
+                                           (struct sockaddr *) &srvr_addr, &rcva_len);// get your data
+                if (rcv_len < 0) {
+                    syserr("read");
+                }
+                if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
+                    srvr_port = be64toh(mess.CMPLX.param);
+                } else {
+                    cout << "\nNOPE\n\n"; //TODO jakis komunikat
+                }
+                break;
+        }
+        cout << "Dostałem port:" << srvr_port << "\n";
+        pobieranko_z_serverwa(ip, srvr_port, filename);
+    } else {
+        cout << "Plik nie istnieje\n"; //TODO
+    }
+
 }
 
 
@@ -278,10 +393,17 @@ int main(int ac, char *av[]) {
             continue;
 
         }
-        if (a == "f")
-            send_simpl_cmd(sock, my_address, "GET", cmd_seq, b);
-        if (a == "u")
+        if (a == "f") {
+            fetch(sock, b);
+
+            continue;
+        }
+        if (a == "u") {
+//            (sock, my_address, b);
+
             send_simpl_cmd(sock, my_address, "ADD", cmd_seq, b);
+//            continue;
+        }
         gettimeofday(&start, 0);
         gettimeofday(&current, 0);
         __time_t wait_ms = TIMEOUT * 1000;
@@ -290,7 +412,8 @@ int main(int ac, char *av[]) {
             int ret;
             CMD mess;
             flags = 0;
-            rcva_len = (socklen_t) sizeof(srvr_address);
+            rcva_len = (socklen_t)
+                    sizeof(srvr_address);
 
             fd.fd = sock; // your socket handler
             fd.events = POLLIN;

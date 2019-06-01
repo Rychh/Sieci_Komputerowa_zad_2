@@ -25,11 +25,12 @@ namespace fs = boost::filesystem;
 using namespace std;
 
 
-string MCAST_ADDR;// -g
-int CMD_PORT;// -p
+//TODO zmienic domyslne wartość !!
+string MCAST_ADDR = "239.10.11.12";// -g
+int CMD_PORT = 6665;// -p
 unsigned long long MAX_SPACE = 52428800;// -b
-string SHRD_FLDR = ".";// -f
-short TIMEOUT = 5;// -t
+string SHRD_FLDR = "./test/";// -f
+short TIMEOUT = 1;// -t
 int used_space = 0;
 
 //PYTANIA:
@@ -202,6 +203,7 @@ void send_to_client(int sock, CMD &mess, struct sockaddr_in &client_address) {
 
 bool filename_exist(string filename) {
     /* Sprawdzenie czy nie istnieje już plik o tej nazwie.*/
+    cout << filename << "\n";
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())
             && itr->path().filename().compare(filename) == 0) {
@@ -244,23 +246,96 @@ void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, co
     cout << "Wysłałem info o " << tmp << " plikach\n";
 }
 
+
+void wyslij_plik(int new_sock, string filename) {
+    cout << "Jestem w wyslij_plik\n";
+
+    struct sockaddr_in new_client_address;
+    socklen_t new_client_address_len;
+
+    int queue_length = 5;
+    int msg_sock;
+
+    cout << "przed lissten\n";
+
+    // switch to listening (passive open)
+    if (listen(new_sock, queue_length) < 0)
+        syserr("listen");
+
+    cout << "Przed acceptem\n";
+
+    msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
+    if (msg_sock < 0)
+        syserr("accept");
+    string file_path = SHRD_FLDR + filename;
+    FILE *fd = fopen(file_path.c_str(), "rb");
+    size_t rret, wret;
+    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    cout << "przed wysyłaniem\n";
+
+    size_t bytes_read;
+    ssize_t wyslane;
+    while (!feof(fd)) {
+        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) { //TODO zmienic
+            cout << "przed write\n";
+            wyslane = write(msg_sock, buffer, bytes_read); //TODO send czy write??
+            cout << "Wysłałem " << wyslane << "bytow, a miało byc:" << bytes_read << "\n";
+        } else {
+            cout << "Koniec wysyłania!\n";
+            break;
+        }
+    }
+    cout << "Po wsyłaniu \n";
+
+    fclose(fd);
+    close(msg_sock);
+    cout << "Po zamknięciu fd\n";
+}
+
 /* Odpowiedź serwera na komunikat "GET" */
-void cmd_get(int sock, CMD &mess, struct sockaddr_in &client_address) {
-    uint64_t cmd_seq = mess.SIMPL.cmd_seq;
-    string filename = mess.SIMPL.data;
+void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, string filename) {
+    cout << "cmd_get\n";
+    if (filename_exist(filename)) {
+        cout << "filename_exist(filename)\n";
 
-    if (!filename_exist(filename)) {
-        memset(mess.CMPLX.cmd, 0, 10);
-        strncpy(mess.CMPLX.cmd, "CONNECT_ME", 10);
-        mess.CMPLX.param = htobe64(6666);//TODO jakis port?
-        strncpy(mess.CMPLX.data, filename.c_str(), CMD_CMPLX_DATA_SIZE);
-        mess.CMPLX.cmd_seq = cmd_seq;
+        struct sockaddr_in server_address;
+        int new_sock;
+        uint64_t port;
 
 
+        new_sock = socket(PF_INET, SOCK_STREAM, 0); // creating IPv4 TCP socket
+        if (new_sock < 0)
+            syserr("socket");
+        // after socket() call; we should close(sock) on any execution path;
+        // since all execution paths exit immediately, sock would be closed when program terminates
+
+        server_address.sin_family = AF_INET; // IPv4
+        server_address.sin_addr.s_addr = htonl(INADDR_ANY); // listening on all interfaces
+        server_address.sin_port = 0; // listening on port PORT_NUM
+
+        cout << "Bind\n";
+
+        // bind the socket to a concrete address
+        if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
+            syserr("bind");
+
+        struct sockaddr_in sin;
+        socklen_t len = sizeof(sin);
+        if (getsockname(new_sock, (struct sockaddr *) &sin, &len) == -1)
+            perror("getsockname");
+        else {
+            port = ntohs(sin.sin_port);
+            char myIP[16]; //TODO skasowac to
+            inet_ntop(AF_INET, &sin.sin_addr, myIP, sizeof(myIP));
+            cout << "Port: " << port << "; IP : " << myIP << "\n";
+        }
+
+        send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
+        wyslij_plik(new_sock, filename);
     } else {
+        cout << "Nie ma tu tatkiego pliku:\"" << filename << "\". Proszę poszukać gdzieś indziej.\n";
         //TODO jezeli dany plik nie istnieje to nic nie wysylam ale odnotowuje
     }
-
 }
 
 /* Odpowiedź serwera na komunikat "REMOVE" */
@@ -298,7 +373,6 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
         //TODO połącz po TCP
     }
 }
-
 
 int main(int ac, char *av[]) {
     struct sockaddr_in server_address;
@@ -349,13 +423,16 @@ int main(int ac, char *av[]) {
         else {
             cmd_seq = be64toh(mess.SIMPL.cmd_seq);
 
+
+            //TODO czy ja nie musze skiopowac danych przy forku?
+
             cout << "Odebrałem:  { cmd:" << mess.SIMPL.cmd << "; bitow:" << len << "}\n";
             if (strcmp(mess.SIMPL.cmd, "HELLO") == 0)
                 cmd_hello(sock, client_address, cmd_seq);
             else if (strcmp(mess.SIMPL.cmd, "LIST") == 0)
                 cmd_list(sock, client_address, cmd_seq, mess.SIMPL.data);
             else if (strcmp(mess.SIMPL.cmd, "GET") == 0)
-                cmd_get(sock, mess, client_address); //TODO
+                cmd_get(sock, client_address, cmd_seq, mess.SIMPL.data); //TODO
             else if (strcmp(mess.SIMPL.cmd, "DEL") == 0)
                 cmd_remove(mess.SIMPL.data);
             else if (strcmp(mess.SIMPL.cmd, "ADD") == 0) {
