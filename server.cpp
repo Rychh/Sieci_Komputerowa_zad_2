@@ -41,6 +41,7 @@ unsigned long long used_space = 0;
 //TCP?? jak? Wątki?
 //Zamykanie?
 
+//TODO domsylne wartosci
 //TODO
 //ZADANIA:
 //Na zrobić samo przesyłanie plikow danych do clienta a on tylko wypisuje co widzi
@@ -130,23 +131,13 @@ void parser(int ac, char *av[]) {
     catch (...) {
         cerr << "Exception of unknown type!\n";
     }
-    /*
-    cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
-         << "CMD_PORT:" << CMD_PORT << "\n"
-         << "MAX_SPACE:" << MAX_SPACE << "\n"
-         << "SHRD_FLDR:" << SHRD_FLDR << "\n"
-         << "TIMEOUT:" << TIMEOUT << "\n";*/
-
 }
 
 void load_files_names() {
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
-        cout << itr->path() << '=' << itr->path().filename().string() << " "; // display filename only //TODO
         if (is_regular_file(itr->status())) {
-            cout << " [" << file_size(itr->path()) << ']'; //TODO
             used_space += file_size(itr->path());
         }
-        cout << '\n';
     }
 }
 
@@ -193,23 +184,9 @@ int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short loca
     return sock;
 }
 
-/*
-void send_to_client(int sock, CMD &mess, struct sockaddr_in &client_address) {
-    int flag = 0;
-    socklen_t snda_len = (socklen_t) sizeof(client_address);
-
-    ssize_t snd_len = sendto(sock, &mess, sizeof(CMD), flag,
-                             (struct sockaddr *) &client_address, snda_len);
-    cout << "Wysłalem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:" << snd_len
-         << "; }\n";
-    if (snd_len != sizeof(CMD))
-        syserr("error on sending datagram to client socket");
-}
-*/
 
 bool filename_exist(string filename) {
     /* Sprawdzenie czy nie istnieje już plik o tej nazwie.*/
-    cout << filename << "\n";
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())
             && itr->path().filename().compare(filename) == 0) {
@@ -232,8 +209,6 @@ void cmd_hello(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq) {
 /* Odpowiedź serwera na komunikat "LIST" */
 void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, const string &data) {
     string send_data;
-    cout << "Wysylam liste z nazwami: " << data << " \n";
-    int tmp = 0; //TODO nie potrzebne
 
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status()) &&
@@ -241,77 +216,55 @@ void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, co
              itr->path().filename().string().find(data) != string::npos)) {
             if (send_data.size() + itr->path().filename().string().size() + 1 > CMD_CMPLX_DATA_SIZE) {
                 send_simpl_cmd(sock, client_address, "MY_LIST", cmd_seq, send_data);
-                cout << "Send_data jest za duzy. Wysle to w osobnych komunikatach.\n";
-                cout << "LISTALISTALISTALISTALISTALISTALISTALISTALISTALISTALISTALISTALISTALISTA\n";
-                send_data = "";
             }
             send_data += itr->path().filename().string() + "\n";
-            tmp++;
         }
     }
-
     if (!send_data.empty()) {
-        cout << "Wysyłam komunikat\n";
         send_simpl_cmd(sock, client_address, "MY_LIST", cmd_seq, send_data);
     }
-    cout << "Wysłałem info o " << tmp << " plikach\n";
 }
 
 
 void wyslij_plik(int new_sock, string filename) {
-    cout << "Jestem w wyslij_plik\n";
-
     struct sockaddr_in new_client_address;
     socklen_t new_client_address_len;
-
     int queue_length = 5;
     int msg_sock;
-
-    cout << "przed lissten\n";
 
     // switch to listening (passive open)
     if (listen(new_sock, queue_length) < 0)
         syserr("listen");
 
-    cout << "Przed acceptem\n";
     msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
     if (msg_sock < 0)
         syserr("accept");
     string file_path = SHRD_FLDR + filename;
     FILE *fd = fopen(file_path.c_str(), "rb");
     size_t rret, wret;
-    char buffer[512*1024]; //TODO zwiększyc. MALLOCOWAĆ??
-    cout << "przed wysyłaniem\n";
+    char buffer[512 * 1024];
 
     size_t bytes_read;
     ssize_t wyslane;
     while (!feof(fd)) {
-        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) { //TODO zmienic
-            cout << "przed write\n";
-            wyslane = write(msg_sock, buffer, bytes_read); //TODO send czy write??
-            cout << "Wysłałem " << wyslane << "bytow, a miało byc:" << bytes_read << "\n";
+        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) {
+            wyslane = write(msg_sock, buffer, bytes_read);
         } else {
+            //TODO komentarz
             cout << "Koniec wysyłania!\n";
             break;
         }
     }
-    cout << "Po wsyłaniu \n";
-
     fclose(fd);
     close(msg_sock);
-    cout << "Po zamknięciu fd\n";
 }
 
 /* Odpowiedź serwera na komunikat "GET" */
 void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, string filename) {
-    cout << "cmd_get\n";
     if (filename_exist(filename)) {
-        cout << "filename_exist(filename)\n";
-
         struct sockaddr_in server_address;
         int new_sock;
         uint64_t port;
-
 
         new_sock = socket(PF_INET, SOCK_STREAM, 0); // creating IPv4 TCP socket
         if (new_sock < 0)
@@ -335,8 +288,6 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         if (setsockopt(new_sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
                        sizeof(timeout)) < 0)
             syserr("setsockopt failed\n");
-
-        cout << "Bind\n";
 
         // bind the socket to a concrete address
         if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
@@ -351,8 +302,7 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         }
 
         send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
-        cout << "connect_me wysłałem!!\n";
-        std::thread t{[new_sock, filename] {wyslij_plik(new_sock, filename);}};
+        std::thread t{[new_sock, filename] { wyslij_plik(new_sock, filename); }};
         t.detach();
     } else {
         cout << "Nie ma tu tatkiego pliku:\"" << filename << "\". Proszę poszukać gdzieś indziej.\n";
@@ -362,93 +312,58 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
 
 /* Odpowiedź serwera na komunikat "REMOVE" */
 void cmd_remove(string filename) {
-    cout << "Chcę usunąć: " << filename << "\n";
-    int tmp = 0; //TODO nie potrzebna
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())
             && itr->path().filename().compare(filename) == 0) {
             used_space -= file_size(itr->path());
             remove(itr->path());
-            tmp++;
         }
     }
-    if (tmp != 0)
-        cout << "Usunałem " << tmp << " plikow\n";
-    else
-        cout << "Nic nie usunalem\n";
 }
 
 
 void pobierz_pliki(int new_sock, string filename) {
-    cout << "Jestem w pobierz_pliki\n";
     struct sockaddr_in new_client_address;
     socklen_t new_client_address_len;
     int queue_length = 5;
     int msg_sock;
-    cout << "przed lissten\n";
 
-    /*   struct pollfd fd;
-       fd.fd = new_sock; // your socket handler
-       fd.events = POLLIN;
-       int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
-       switch (ret) {
-           case -1:
-               cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
-               break;
-           case 0:
-               cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
-               break;
-           default:
-               // switch to listening (passive open)
-               break;
-       }
-   */
     if (listen(new_sock, queue_length) < 0)
         syserr("listen");
-    cout << "Przed acceptem\n";
-
 
     msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
     if (msg_sock < 0)
         syserr("accept");
 
     string file_path = SHRD_FLDR + filename;
-    char buffer[512*1024]; //TODO zwiększyc. MALLOCOWAĆ??
-    cout << "przed wysyłaniem\n";
+    char buffer[512 * 1024];
     ssize_t datasize = 0;
     FILE *file = fopen(file_path.c_str(), "wb");
     do {
         fwrite(&buffer, sizeof(char), datasize, file);
-        datasize = read(msg_sock, buffer, sizeof(buffer));//TODO msg_sock1!
-        cout << "Read datasize = " << datasize << "\n";
-//        used_space += datasize; //TODO spoko?? chyb nie
+        datasize = read(msg_sock, buffer, sizeof(buffer));
     } while (datasize > 0);
-    cout << "Pobrano!!\n";
+    //TODO komunikat!!
 
     fclose(file);
     close(msg_sock);
-    cout << "Po zamknięciu file\n";
 }
 
 
 /* Odpowiedź serwera na komunikat "ADD" */
 void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uint64_t param, const string &filename) {
-    cout << "Chce dodać: " << filename << "\n";
 
     /* Sprawdzenie czy możemy dodać plik */
     if (param > MAX_SPACE - used_space ||
         filename.empty() || (filename.find("/") != string::npos) ||
         filename_exist(filename)) {
+        //TODO komunikat?
         cout << "No niestety nie wyszło :)\n";
         send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, filename);
     } else {
-        cout << "Oki doki dawaj śmiało\n";
-
-
         struct sockaddr_in server_address;
         int new_sock;
         uint64_t port = 0;
-
 
         new_sock = socket(PF_INET, SOCK_STREAM, 0); // creating IPv4 TCP socket
         if (new_sock < 0)
@@ -472,8 +387,6 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
                        sizeof(timeout)) < 0)
             syserr("setsockopt failed\n");
 
-        cout << "Bind\n";
-
         // bind the socket to a concrete address
         if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
             syserr("bind");
@@ -485,46 +398,15 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
             perror("getsockname");
         else {
             port = ntohs(sin.sin_port);
-            char myIP[16]; //TODO skasowac to
-            inet_ntop(AF_INET, &sin.sin_addr, myIP, sizeof(myIP));
-            cout << "Port: " << port << "; IP : " << myIP << "\n";
         }
 
         if (port != 0) {
-            used_space += param; //TODO spoko?? chyb nie
+            used_space += param;
+            send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);
 
-            //TODO sock new_cosk xDFGRWEAF?
-            send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);//TODO!! paaram/port
-
-/*
-            cout << "Bind\n";
-
-            // bind the socket to a concrete address
-            if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
-                syserr("bind");
-*/
-
-            cout << filename << new_sock << "-przed\n";
-
-            std::thread t{[new_sock, filename] {pobierz_pliki(new_sock, filename);}};
+            std::thread t{[new_sock, filename] { pobierz_pliki(new_sock, filename); }};
             t.detach();
-
-            /*pid_t pid = fork();
-            if (pid == 0) {// child process
-                pobierz_pliki(new_sock, filename);
-
-                cout << new_sock << "-d\n";
-                syserr("wszystko gra");
-            } else if (pid > 0) {
-                cout << "ojciec\n";
-            } else {
-                // fork failed
-                cout << "Problem z forkiem!!!\n"; //TODO;
-            }*/
-
         }
-
-        cout << "Czekam na TCP\n";
     }
 }
 
@@ -541,7 +423,6 @@ int main(int ac, char *av[]) {
     ssize_t rcv_len;
     int i;
 
-    std::cout << "SERVER! <--" << std::endl;
     parser(ac, av);
 
     if (fs::is_directory(SHRD_FLDR)) {
@@ -550,39 +431,30 @@ int main(int ac, char *av[]) {
         cerr << "There is no such directory.";
         exit(1);
     }
-    //??
 
     multicast_dotted_address = (char *) MCAST_ADDR.c_str();
     sock = initSock(ip_mreq, multicast_dotted_address, CMD_PORT);
-    cout << "polaczonao\n";
     uint64_t cmd_seq;
     uint64_t param;
 
     /* czytanie tego, co odebrano */
-    for (i = 0; i < 1000; ++i) {
-        //TODO zawsze robić nowey sockem
-        cout << "-----------------------------------------------------\nCzekam przed recv\n";
+    for (i = 0; i < 1000; ++i) { //TODO zrobic nieskonczona ptele
 
         rcva_len = (socklen_t) sizeof(client_address);
         int flag = 0;
         ssize_t len = recvfrom(sock, &mess, sizeof(CMD), flag,
                                (struct sockaddr *) &client_address, &rcva_len);
-
         if (len < 0)
             syserr("error on datagram from client socket");
         else {
             cmd_seq = be64toh(mess.SIMPL.cmd_seq);
 
-
-            //TODO czy ja nie musze skiopowac danych przy forku?
-
-            cout << "Odebrałem:  { cmd:" << mess.SIMPL.cmd << "; bitow:" << len << "}\n";
             if (strcmp(mess.SIMPL.cmd, "HELLO") == 0)
                 cmd_hello(sock, client_address, cmd_seq);
             else if (strcmp(mess.SIMPL.cmd, "LIST") == 0)
                 cmd_list(sock, client_address, cmd_seq, mess.SIMPL.data);
             else if (strcmp(mess.SIMPL.cmd, "GET") == 0)
-                cmd_get(sock, client_address, cmd_seq, mess.SIMPL.data); //TODO
+                cmd_get(sock, client_address, cmd_seq, mess.SIMPL.data);
             else if (strcmp(mess.SIMPL.cmd, "DEL") == 0)
                 cmd_remove(mess.SIMPL.data);
             else if (strcmp(mess.SIMPL.cmd, "ADD") == 0) {
@@ -590,7 +462,6 @@ int main(int ac, char *av[]) {
                 cmd_add(sock, client_address, cmd_seq, param, mess.CMPLX.data);
             } else
                 pckg_error(client_address, "Wrong command.");
-            cout << "_SERVER__SERVER__SERVER__SERVER__SERVER__SERVER__SERVER_\n\n ";
         }
     }
     /* w taki sposób można odpiąć się od grupy rozsyłania */
