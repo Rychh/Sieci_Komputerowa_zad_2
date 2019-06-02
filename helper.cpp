@@ -12,8 +12,7 @@
 using namespace std;
 
 
-void syserr(const char *fmt, ...)
-{
+void syserr(const char *fmt, ...) {
     va_list fmt_args;
     int err = errno;
 
@@ -22,14 +21,12 @@ void syserr(const char *fmt, ...)
     va_start(fmt_args, fmt);
     vfprintf(stderr, fmt, fmt_args);
     va_end (fmt_args);
-    fprintf(stderr," (%d; %s)\n", err, strerror(err));
+    fprintf(stderr, " (%d; %s)\n", err, strerror(err));
     exit(EXIT_FAILURE);
 }
 
 
-
-void fatal(const char *fmt, ...)
-{
+void fatal(const char *fmt, ...) {
     va_list fmt_args;
 
     fprintf(stderr, "ERROR: ");
@@ -38,7 +35,7 @@ void fatal(const char *fmt, ...)
     vfprintf(stderr, fmt, fmt_args);
     va_end (fmt_args);
 
-    fprintf(stderr,"\n");
+    fprintf(stderr, "\n");
     exit(EXIT_FAILURE);
 }
 
@@ -72,16 +69,6 @@ send_cmd(int sock, struct sockaddr_in &addr, const string &cmd, uint64_t cmd_seq
 
     if (snd_len != (ssize_t) sizeof(CMD)) {
         syserr("partial / failed write");
-    }
-    if (isSimple) {
-        cout << "Wyslałem SIMPL:\n { cmd:" << mess.SIMPL.cmd << "; bitow:" << snd_len << "; cmd_seq:" << cmd_seq
-             << ";\n";
-        cout << "data:\n" << mess.SIMPL.data << "\n}\n";
-    } else {
-        cout << "Wyslałem CMPLX:\n { cmd:" << mess.CMPLX.cmd << "; bitow:" << snd_len << "; cmd_seq:" << cmd_seq
-             << ";\n";
-        cout << "param:" << param << "\n";
-        cout << "data:\n" << mess.CMPLX.data << "\n}\n";
     }
 }
 

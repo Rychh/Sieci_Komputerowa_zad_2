@@ -27,12 +27,11 @@ namespace fs = boost::filesystem;
 using namespace std;
 
 
-//TODO zmienic domyslne wartość !!
-string MCAST_ADDR = "239.10.11.12";// -g
-int CMD_PORT = 6665;// -p
+string MCAST_ADDR;// -g
+int CMD_PORT;// -p
 unsigned long long MAX_SPACE = 52428800;// -b
-string SHRD_FLDR = "./test/";// -f
-short TIMEOUT = 1;// -t
+string SHRD_FLDR = "";// -f
+short TIMEOUT = 5;// -t
 unsigned long long used_space = 0;
 
 //PYTANIA:
@@ -114,14 +113,15 @@ void parser(int ac, char *av[]) {
         }
 
         if (vm.count("f")) {
-            SHRD_FLDR = vm["f"].as<string>();
+            SHRD_FLDR = vm["f"].as<string>() + "/";
         }
 
         if (vm.count("t")) {
             if (vm["t"].as<short>() <= 300) {
                 TIMEOUT = vm["t"].as<short>();
             } else {
-                cerr << "Hola hola, Kolego. TIMEOUT nie większy niż 300!"; //TODO
+                cerr << "TIMEOUT must be less then 300.";
+                exit(1);
             }
         }
     }
@@ -141,13 +141,6 @@ void load_files_names() {
     }
 }
 
-/*
-void pckg_error(const struct sockaddr_in &addr, const string &info) {
-
-    cout << "[PCKG ERROR] Skipping invalid package from " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port)
-         << ". " << info << "\n";
-}
-*/
 
 int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short local_port) {
     /* otworzenie gniazda */
@@ -175,7 +168,7 @@ int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short loca
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void *) &optVal, sizeof(optVal)) < 0)
         syserr("setsockopt");
 
-    optVal = 4; //TODO czy to potrzebne?
+    optVal = 4;
     if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &optVal, sizeof(optVal)) < 0)
         syserr("setsockopt");
 
@@ -250,8 +243,6 @@ void wyslij_plik(int new_sock, string filename) {
         if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) {
             wyslane = write(msg_sock, buffer, bytes_read);
         } else {
-            //TODO komentarz
-            cout << "Koniec wysyłania!\n";
             break;
         }
     }
@@ -296,17 +287,15 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         struct sockaddr_in sin;
         socklen_t len = sizeof(sin);
         if (getsockname(new_sock, (struct sockaddr *) &sin, &len) == -1)
-            perror("getsockname");
+            syserr("getsockname");
         else {
             port = ntohs(sin.sin_port);
+            send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);
+            std::thread t{[new_sock, filename] { wyslij_plik(new_sock, filename); }};
+            t.detach();
         }
-
-        send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
-        std::thread t{[new_sock, filename] { wyslij_plik(new_sock, filename); }};
-        t.detach();
     } else {
-        cout << "Nie ma tu tatkiego pliku:\"" << filename << "\". Proszę poszukać gdzieś indziej.\n";
-        //TODO jezeli dany plik nie istnieje to nic nie wysylam ale odnotowuje
+        pckg_error(client_address, "We don't have file: \"" + filename + "\"");
     }
 }
 
@@ -357,8 +346,6 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
     if (param > MAX_SPACE - used_space ||
         filename.empty() || (filename.find("/") != string::npos) ||
         filename_exist(filename)) {
-        //TODO komunikat?
-        cout << "No niestety nie wyszło :)\n";
         send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, filename);
     } else {
         struct sockaddr_in server_address;
@@ -438,8 +425,7 @@ int main(int ac, char *av[]) {
     uint64_t param;
 
     /* czytanie tego, co odebrano */
-    for (i = 0; i < 1000; ++i) { //TODO zrobic nieskonczona ptele
-
+    while (true) {
         rcva_len = (socklen_t) sizeof(client_address);
         int flag = 0;
         ssize_t len = recvfrom(sock, &mess, sizeof(CMD), flag,

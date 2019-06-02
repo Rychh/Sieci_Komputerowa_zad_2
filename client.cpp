@@ -26,14 +26,11 @@ namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 using namespace std;
 
-#define TTL_VALUE     4
 
-
-//TODO zmienic te wartosci!!
-string MCAST_ADDR = "239.10.11.12";// -g
-int CMD_PORT = 6665;// -p
-string OUT_FLDR = "folder_clienta/";// -f
-short TIMEOUT = 2;// -t
+string MCAST_ADDR;// -g
+int CMD_PORT;// -p
+string OUT_FLDR;// -o
+short TIMEOUT = 5;// -t
 
 int used_space = 0;
 uint64_t cmd_seq = 5;
@@ -69,7 +66,7 @@ void parser(int ac, char *av[]) {
         }
 
         if (vm.count("g")) {
-            MCAST_ADDR = vm["g"].as<string>() + "/";
+            MCAST_ADDR = vm["g"].as<string>();
         }
 
         if (vm.count("p")) {
@@ -77,7 +74,7 @@ void parser(int ac, char *av[]) {
         }
 
         if (vm.count("o")) {
-            OUT_FLDR = vm["o"].as<string>();
+            OUT_FLDR = vm["o"].as<string>() + "/";
         }
 
         if (vm.count("t")) {
@@ -186,6 +183,7 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
                         string filename;
                         stringstream ss(mess.SIMPL.data);
                         while (ss >> filename) {
+                            cout << filename << " (" << inet_ntoa(srvr_addr.sin_addr) << ")\n";
                             filenames.insert(pair<string, in_addr_t>(filename, srvr_addr.sin_addr.s_addr));
                         }
                     } else {
@@ -221,7 +219,7 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
     addr_hints.ai_family = AF_INET; // IPv4
     addr_hints.ai_socktype = SOCK_STREAM;
     addr_hints.ai_protocol = IPPROTO_TCP;
-    //TODO nie wie czy odpowiedni port wysyłam host to kurwa chuj!@#$W$TQRTEHRTMHEJJYY%#@Q#
+
 
     err = getaddrinfo(inet_ntoa(srvr_ip), to_string(srvr_port).c_str(), &addr_hints, &addr_result);
     if (err == EAI_SYSTEM) { // system error
@@ -257,9 +255,9 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
 
 void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     string file_path = OUT_FLDR + filename;
-    char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512 * 1024];
     struct in_addr srvr_ip;
-    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
+    srvr_ip.s_addr = ip;
     int sock;
 
     sock = tcp_connect_with_server(ip, srvr_port, srvr_ip);
@@ -275,7 +273,7 @@ void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
         cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
     } else {
         cout << "File " << filename << " downloading failed (" << inet_ntoa(srvr_ip) << ":" << srvr_port
-             << ") {opis_błędu}\n"; //TODO opis błędu
+             << ")\n";
     }
     fclose(fd);
     close(sock);
@@ -319,7 +317,7 @@ void fetch(int sock, const string &filename) {
                     sleep(1);
                     in_addr_t ip = filenames[filename];
                     uint64_t port = be64toh(mess.CMPLX.param);
-                    std::thread t{[ip, port, filename] { pobieranko_z_serverwa(ip,port, filename); }};
+                    std::thread t{[ip, port, filename] { pobieranko_z_serverwa(ip, port, filename); }};
                     t.detach();
                 } else {
                     pckg_error(srvr_addr, "Wrong server command. Fetch was stopped.");
@@ -340,9 +338,9 @@ void fetch(int sock, const string &filename) {
 
 void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     string file_path = OUT_FLDR + filename;
-    char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512 * 1024];
     struct in_addr srvr_ip;
-    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
+    srvr_ip.s_addr = ip;
     int sock;
 
     sock = tcp_connect_with_server(ip, srvr_port, srvr_ip);
@@ -353,15 +351,12 @@ void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     FILE *fd = fopen(file_path.c_str(), "rb");
     while (!feof(fd)) {
         if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) {
-            wyslane = write(sock, buffer, bytes_read); //TODO send czy write??
+            write(sock, buffer, bytes_read);
         } else {
-            //TODO dodac commentarze
-            cout << "Koniec wysyłania!\n";
+            cout << "File " << filename << " uploaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
             break;
         }
     }
-    cout << "Po wsyłaniu \n";
-
     fclose(fd);
     close(sock);
 }
@@ -415,7 +410,7 @@ void upload(int sock, const string &filename) {
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
                         sleep(1);
                         in_addr_t ip = filenames[filename];
-                        std::thread t{[ip, srvr_port, filename] { wysylanko_do_serverwa(ip,srvr_port, filename); }};
+                        std::thread t{[ip, srvr_port, filename] { wysylanko_do_serverwa(ip, srvr_port, filename); }};
                         t.detach();
                     } else if (strcmp(mess.SIMPL.cmd, "NO_WAY") == 0) {
                         cout << "File " << filename << " uploading failed (" <<
@@ -500,7 +495,6 @@ int main(int ac, char *av[]) {
     while (!program_exit) {
         istringstream iss;
         counter = -1;
-        cout << "\nCzekam na nowe polecenie\n";
         getline(cin, response);
         iss.str(response);
         if (iss) {
@@ -511,7 +505,6 @@ int main(int ac, char *av[]) {
             iss >> second;
             counter++;
         }
-        cout << first << " " << second << " " << counter << "\n";
         if (counter == 1) {
             if (boost::iequals(first, "d") || boost::iequals(first, "discover")) {
                 discover(sock, my_address);
