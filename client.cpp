@@ -1,6 +1,7 @@
-#include <iostream>
+#include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
+#include <iostream>
 #include <string>
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,7 +193,7 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
                 }
 
                 if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
-                    if (strcmp(mess.SIMPL.cmd, "MY_LIST") == 0 ) {
+                    if (strcmp(mess.SIMPL.cmd, "MY_LIST") == 0) {
                         string filename;
                         stringstream ss(mess.SIMPL.data);
                         while (ss >> filename) {
@@ -248,6 +249,17 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
         syserr("socket");
     cout << "przed połączeniem\n";
 
+    /*struct timeval timeout;
+    timeout.tv_sec = TIMEOUT;
+    timeout.tv_usec = 0;
+    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,
+                    sizeof(timeout)) < 0)
+        syserr("setsockopt failed\n");
+
+    if (setsockopt (sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout,
+                    sizeof(timeout)) < 0)
+        syserr("setsockopt failed\n");*/
+
     // connect socket to the server
     if (connect(sock, addr_result->ai_addr, addr_result->ai_addrlen) < 0)
         syserr("connect");
@@ -298,6 +310,7 @@ void fetch(int sock, const string &filename) {
         srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
         srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
         send_simpl_cmd(sock, srvr_addr, "GET", cmd_seq, filename);
+        cout << "get!!\n";
 
         socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
         fd.fd = sock; // your socket handler
@@ -322,7 +335,7 @@ void fetch(int sock, const string &filename) {
         }
         if (rcv_b) {
             if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
-                if (strncmp(mess.SIMPL.cmd, "CONNECT_ME", 10) == 0 ) {
+                if (strncmp(mess.SIMPL.cmd, "CONNECT_ME", 10) == 0) {
                     pobieranko_z_serverwa(filenames[filename], be64toh(mess.CMPLX.param), filename);
                 } else {
                     pckg_error(srvr_addr, "Wrong server command. Fetch was stopped.");
@@ -423,6 +436,8 @@ void upload(int sock, const string &filename) {
                 if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
                     srvr_port = be64toh(mess.CMPLX.param);
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
+                        cout <<"OK =(\n";
+//                        sleep(1);
                         wysylanko_do_serverwa(filenames[filename], srvr_port, filename);
                     } else if (strcmp(mess.SIMPL.cmd, "NO_WAY") == 0) {
                         cout << "File " << filename << " uploading failed (" <<
@@ -455,6 +470,7 @@ int main(int ac, char *av[]) {
     size_t N = 1;
     struct timeval current, start;
     int sock;
+    bool program_exit = false;
     struct addrinfo addr_hints;
     struct addrinfo *addr_result;
     char *remote_dotted_address = (char *) MCAST_ADDR.c_str();
@@ -502,95 +518,49 @@ int main(int ac, char *av[]) {
     if (sock < 0)
         syserr("socket");
 
-    for (int i = 0; i < 100; i++) {
-
+    int counter;
+    string response, tmp, first, second;
+    while (!program_exit) {
+        istringstream iss;
+        counter = -1;
         cout << "\nCzekam na nowe polecenie\n";
-//        string response;
-//        getline(cin, response);
-//
-        string a, b;
-        cin >> a;
-        if (a != "d")
-            cin >> b;
-        if (a == "d") {
-            discover(sock, my_address);
-            continue;
+        getline(cin, response);
+        iss.str(response);
+        if (iss) {
+            iss >> first;
+            counter++;
         }
-        if (a == "s") {
-            if (b == "0")
-                b = "";
-            search(sock, my_address, b);
-            continue;
+        while (iss) {
+            iss >> second;
+            counter++;
         }
-        if (a == "r") {
-            if (b == "0")
-                b = "";
-            remove(sock, my_address, b);
-            continue;
-
-        }
-        if (a == "f") {
-            fetch(sock, b);
-
-            continue;
-        }
-        if (a == "u") {
-            discover(sock, my_address, false);
-
-            upload(sock, b);
-
-            continue;
-//            (sock, my_address, b);
-
-            send_simpl_cmd(sock, my_address, "ADD", cmd_seq, b);
-//            continue;
-        }
-        gettimeofday(&start, 0);
-        gettimeofday(&current, 0);
-        __time_t wait_ms = TIMEOUT * 1000;
-        while (wait_ms > 0) {
-            struct pollfd fd;
-            int ret;
-            CMD mess;
-            flags = 0;
-            rcva_len = (socklen_t)
-                    sizeof(srvr_address);
-
-            fd.fd = sock; // your socket handler
-            fd.events = POLLIN;
-            ret = poll(&fd, 1, wait_ms); // 1 second for timeout
-            switch (ret) {
-                case -1:
-                    cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
-                    // Error
-                    break;
-                case 0:
-                    cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
-                    break;
-                default:
-                    rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
-                                       (struct sockaddr *) &srvr_address, &rcva_len);// get your data
-                    if (rcv_len < 0) {
-                        syserr("read");
-                    }
-                    cout << "Odebrałem: { cmd:" << mess.CMPLX.cmd << "; data:" << mess.CMPLX.data << "; bitow:"
-                         << rcv_len << "}\n";
-                    if (cmd_seq != be64toh(mess.SIMPL.cmd_seq)) {
-                        cout << "ZLE!!! cmd_seq!!!!!!!!!!\n";
-                        cout << "ORGINAL: " << cmd_seq << "; SIMPL: " << be64toh(mess.SIMPL.cmd_seq) << "; CMPLx:"
-                             << be64toh(mess.SIMPL.cmd_seq) << "\n";
-                    }
-                    break;
-
+        cout << first << " " << second << " " << counter << "\n";
+        if (counter == 1) {
+            if (boost::iequals(first, "d") || boost::iequals(first, "discover")) {
+                discover(sock, my_address);
             }
-            gettimeofday(&current, 0);
-            wait_ms = (start.tv_sec + TIMEOUT - current.tv_sec) * 1000 +
-                      (start.tv_usec - current.tv_usec) / 1000;
-
+            if (boost::iequals(first, "s") || boost::iequals(first, "search")) {
+                search(sock, my_address, "");
+            }
+        } else if (counter == 2) {
+            if (boost::iequals(first, "s") || boost::iequals(first, "search")) {
+                search(sock, my_address, second);
+            }
+            if (boost::iequals(first, "f") || boost::iequals(first, "fetch")) {
+                fetch(sock, second);
+            }
+            if (boost::iequals(first, "u") || boost::iequals(first, "upload")) {
+                discover(sock, my_address, false);
+                upload(sock, second);
+            }
+            if (boost::iequals(first, "r") || boost::iequals(first, "remove")) {
+                remove(sock, my_address, second);
+            }
+            if (boost::iequals(first, "e") || boost::iequals(first, "exit")) {
+                program_exit = true;
+            }
         }
-        cout << "KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___KONIEC___\n\n";
     }
-
     /* koniec */
     close(sock);
     exit(EXIT_SUCCESS);

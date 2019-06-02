@@ -66,8 +66,6 @@ unsigned long long used_space = 0;
  * */
 
 /* Obsluga bledow
- *  Obsłga cmd_seq
- *  Czy prawdzac ze cmd odpowiedzi od servera odpowiednio sie nazywa?
  *  sprawdzac czy pliki sie otworzyły??
  *  Co jeżeli przy oczekiwaniu na CONNECT_ME albo CAN_ADD dostane zly cmd_seq? Mam udawac ze go nie dostałem?
  *  gdzie mam poprawiac wartosc using_space
@@ -236,7 +234,7 @@ void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, co
     cout << "Wysylam liste z nazwami: " << data << " \n";
     int tmp = 0; //TODO nie potrzebne
 
-    for (fs::directory_iterator itr(SHRD_FFLDR); itr != fs::directory_iterator(); ++itr) {
+    for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status()) &&
             (data.empty() ||
              itr->path().filename().string().find(data) != string::npos)) {
@@ -275,7 +273,6 @@ void wyslij_plik(int new_sock, string filename) {
         syserr("listen");
 
     cout << "Przed acceptem\n";
-
     msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
     if (msg_sock < 0)
         syserr("accept");
@@ -325,6 +322,19 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         server_address.sin_addr.s_addr = htonl(INADDR_ANY); // listening on all interfaces
         server_address.sin_port = 0; // listening on port PORT_NUM
 
+
+        struct timeval timeout;
+        timeout.tv_sec = TIMEOUT;
+        timeout.tv_usec = 0;
+
+        if (setsockopt(new_sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
+                       sizeof(timeout)) < 0)
+            syserr("setsockopt failed\n");
+
+        if (setsockopt(new_sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
+                       sizeof(timeout)) < 0)
+            syserr("setsockopt failed\n");
+
         cout << "Bind\n";
 
         // bind the socket to a concrete address
@@ -340,6 +350,7 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         }
 
         send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
+        cout << "connect_me wysłałem!!\n";
         wyslij_plik(new_sock, filename);
     } else {
         cout << "Nie ma tu tatkiego pliku:\"" << filename << "\". Proszę poszukać gdzieś indziej.\n";
@@ -407,7 +418,6 @@ void pobierz_pliki(int new_sock, string filename) {
     do {
         fwrite(&buffer, sizeof(char), datasize, file);
         datasize = read(msg_sock, buffer, sizeof(buffer));//TODO msg_sock1!
-        sleep(1);
         cout << "Read datasize = " << datasize << "\n";
 //        used_space += datasize; //TODO spoko?? chyb nie
     } while (datasize > 0);
@@ -448,6 +458,18 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
         server_address.sin_addr.s_addr = htonl(INADDR_ANY); // listening on all interfaces
         server_address.sin_port = 0; // listening on port PORT_NUM
 
+        struct timeval timeout;
+        timeout.tv_sec = TIMEOUT;
+        timeout.tv_usec = 0;
+
+        if (setsockopt(new_sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
+                       sizeof(timeout)) < 0)
+            syserr("setsockopt failed\n");
+
+        if (setsockopt(new_sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
+                       sizeof(timeout)) < 0)
+            syserr("setsockopt failed\n");
+
         cout << "Bind\n";
 
         // bind the socket to a concrete address
@@ -470,21 +492,22 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
 
             //TODO sock new_cosk xDFGRWEAF?
             send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);//TODO!! paaram/port
-//            pobierz_pliki(new_sock, filename);
 
+
+            cout << filename << new_sock << "-przed\n";
             pid_t pid = fork();
-            if (pid == 0) {
-                // child process
-                cout << "dziecko\n";
+            if (pid == 0) {// child process
                 pobierz_pliki(new_sock, filename);
+
+                cout << new_sock << "-d\n";
+                syserr("wszystko gra");
             } else if (pid > 0) {
                 cout << "ojciec\n";
-
-                // parent process
             } else {
                 // fork failed
                 cout << "Problem z forkiem!!!\n"; //TODO;
             }
+
         }
 
         cout << "Czekam na TCP\n";
