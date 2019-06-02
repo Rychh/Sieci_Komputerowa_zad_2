@@ -536,6 +536,7 @@ int main(int ac, char *av[]) {
         cerr << "There is no such directory.";
         exit(1);
     }
+    //??
 
     multicast_dotted_address = (char *) MCAST_ADDR.c_str();
     sock = initSock(ip_mreq, multicast_dotted_address, CMD_PORT);
