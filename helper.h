@@ -39,6 +39,7 @@ extern void syserr(const char *fmt, ...);
 /* wypisuje informacje o bledzie i konczy dzialanie */
 extern void fatal(const char *fmt, ...);
 
+void pckg_error(const struct sockaddr_in &addr, const string &info);
 
 void send_simpl_cmd(int sock, struct sockaddr_in &addr, const string &cmd, uint64_t cmd_seq, const string &data);
 

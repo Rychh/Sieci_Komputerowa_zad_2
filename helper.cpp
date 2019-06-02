@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <iostream>
 #include <cstdarg>
+#include <arpa/inet.h>
 #include "helper.h"
 #include "err.h"
 
@@ -39,6 +40,12 @@ void fatal(const char *fmt, ...)
 
     fprintf(stderr,"\n");
     exit(EXIT_FAILURE);
+}
+
+void pckg_error(const struct sockaddr_in &addr, const string &info) {
+
+    cout << "[PCKG ERROR] Skipping invalid package from " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port)
+         << ". " << info << "\n";
 }
 
 
@@ -85,5 +92,4 @@ void send_simpl_cmd(int sock, struct sockaddr_in &addr, const string &cmd, uint6
 void send_cmplx_cmd(int sock, struct sockaddr_in &addr, const string &cmd, uint64_t cmd_seq, uint64_t param,
                     const string &data) {
     send_cmd(sock, addr, cmd, cmd_seq, param, data, false);
-
 }

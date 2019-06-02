@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <stdarg.h>
+#include <poll.h>
 #include "helper.h"
 
 namespace po = boost::program_options;
@@ -31,7 +32,7 @@ int CMD_PORT = 6665;// -p
 unsigned long long MAX_SPACE = 52428800;// -b
 string SHRD_FLDR = "./test/";// -f
 short TIMEOUT = 1;// -t
-int used_space = 0;
+unsigned long long used_space = 0;
 
 //PYTANIA:
 //Czy robić nowe mess? - Nie trzeba bo forki "tworzą nowe".
@@ -54,18 +55,18 @@ int used_space = 0;
  * */
 
 /* Obsługa zapytań clienta
- * jakas strukturka do hello
- * FETch
- * serach
- * i cos tam jeszcze
  * */
 
 /* TCP
- * TCP client -> server
  * współbieżnie?
  * */
 
+/* Co z constexpr size_t CMD_SIZE = 300; ?
+ *
+ * */
+
 /* Obsluga bledow
+ *  Obsłga cmd_seq
  *  Czy prawdzac ze cmd odpowiedzi od servera odpowiednio sie nazywa?
  *  sprawdzac czy pliki sie otworzyły??
  *  Co jeżeli przy oczekiwaniu na CONNECT_ME albo CAN_ADD dostane zly cmd_seq? Mam udawac ze go nie dostałem?
@@ -150,6 +151,14 @@ void load_files_names() {
     }
 }
 
+/*
+void pckg_error(const struct sockaddr_in &addr, const string &info) {
+
+    cout << "[PCKG ERROR] Skipping invalid package from " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port)
+         << ". " << info << "\n";
+}
+*/
+
 int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short local_port) {
     /* otworzenie gniazda */
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -213,7 +222,12 @@ bool filename_exist(string filename) {
 
 /* Odpowiedź serwera na komunikat "HELLO" */
 void cmd_hello(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq) {
-    send_cmplx_cmd(sock, client_address, "GOOD_DAY", cmd_seq, MAX_SPACE - used_space, MCAST_ADDR);
+    unsigned long long diff;
+    if (MAX_SPACE < used_space)
+        diff = 0;
+    else
+        diff = MAX_SPACE - used_space;
+    send_cmplx_cmd(sock, client_address, "GOOD_DAY", cmd_seq, diff, MCAST_ADDR);
 }
 
 /* Odpowiedź serwera na komunikat "LIST" */
@@ -222,7 +236,7 @@ void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, co
     cout << "Wysylam liste z nazwami: " << data << " \n";
     int tmp = 0; //TODO nie potrzebne
 
-    for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
+    for (fs::directory_iterator itr(SHRD_FFLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status()) &&
             (data.empty() ||
              itr->path().filename().string().find(data) != string::npos)) {
@@ -323,15 +337,7 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
             perror("getsockname");
         else {
             port = ntohs(sin.sin_port);
-            char myIP[16]; //TODO skasowac to
-            inet_ntop(AF_INET, &sin.sin_addr, myIP, sizeof(myIP));
-            cout << "Port: " << port << "; IP : " << myIP << "\n";
         }
-
-
-        //TODO póki co to wysyłam każdemu, że chce się z nimi płączyć...
-        //TOOD chyba...
-        //Muszę to sprawdzić
 
         send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
         wyslij_plik(new_sock, filename);
@@ -348,6 +354,7 @@ void cmd_remove(string filename) {
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())
             && itr->path().filename().compare(filename) == 0) {
+            used_space -= file_size(itr->path());
             remove(itr->path());
             tmp++;
         }
@@ -367,10 +374,27 @@ void pobierz_pliki(int new_sock, string filename) {
     int msg_sock;
     cout << "przed lissten\n";
 
-    // switch to listening (passive open)
+    /*   struct pollfd fd;
+       fd.fd = new_sock; // your socket handler
+       fd.events = POLLIN;
+       int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
+       switch (ret) {
+           case -1:
+               cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
+               break;
+           case 0:
+               cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
+               break;
+           default:
+               // switch to listening (passive open)
+               break;
+       }
+   */
     if (listen(new_sock, queue_length) < 0)
         syserr("listen");
     cout << "Przed acceptem\n";
+
+
     msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
     if (msg_sock < 0)
         syserr("accept");
@@ -379,29 +403,19 @@ void pobierz_pliki(int new_sock, string filename) {
     char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
     cout << "przed wysyłaniem\n";
     ssize_t datasize = 0;
-    FILE *fd = fopen(file_path.c_str(), "wb");
+    FILE *file = fopen(file_path.c_str(), "wb");
     do {
-        fwrite(&buffer, sizeof(char), datasize, fd);
+        fwrite(&buffer, sizeof(char), datasize, file);
         datasize = read(msg_sock, buffer, sizeof(buffer));//TODO msg_sock1!
+        sleep(1);
         cout << "Read datasize = " << datasize << "\n";
-        used_space += datasize; //TODO spoko?? chyb nie
+//        used_space += datasize; //TODO spoko?? chyb nie
     } while (datasize > 0);
     cout << "Pobrano!!\n";
-/*
-    if (datasize == 0) {
 
-        cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
-    } else {
-        cout << "File " << filename << " downloading failed (" << inet_ntoa(srvr_ip) << ":" << srvr_port
-             << ") {opis_błędu}\n"; //TODO opis błędu
-
-        cout << "BLAD pobiernia!!\n";
-    }
-*/
-
-    fclose(fd);
+    fclose(file);
     close(msg_sock);
-    cout << "Po zamknięciu fd\n";
+    cout << "Po zamknięciu file\n";
 }
 
 
@@ -411,7 +425,7 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
 
     /* Sprawdzenie czy możemy dodać plik */
     if (param > MAX_SPACE - used_space ||
-        filename.empty() || (filename.compare("/") == 0) ||
+        filename.empty() || (filename.find("/") != string::npos) ||
         filename_exist(filename)) {
         cout << "No niestety nie wyszło :)\n";
         send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, filename);
@@ -452,12 +466,25 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
         }
 
         if (port != 0) {
-
+            used_space += param; //TODO spoko?? chyb nie
 
             //TODO sock new_cosk xDFGRWEAF?
-
             send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);//TODO!! paaram/port
-            pobierz_pliki(new_sock, filename);
+//            pobierz_pliki(new_sock, filename);
+
+            pid_t pid = fork();
+            if (pid == 0) {
+                // child process
+                cout << "dziecko\n";
+                pobierz_pliki(new_sock, filename);
+            } else if (pid > 0) {
+                cout << "ojciec\n";
+
+                // parent process
+            } else {
+                // fork failed
+                cout << "Problem z forkiem!!!\n"; //TODO;
+            }
         }
 
         cout << "Czekam na TCP\n";
@@ -487,10 +514,6 @@ int main(int ac, char *av[]) {
         exit(1);
     }
 
-    if (used_space > MAX_SPACE) {
-        cerr << "Sry Za amało pamieci."; //TODO
-        exit(1);
-    }
     multicast_dotted_address = (char *) MCAST_ADDR.c_str();
     sock = initSock(ip_mreq, multicast_dotted_address, CMD_PORT);
     cout << "polaczonao\n";
@@ -528,7 +551,7 @@ int main(int ac, char *av[]) {
                 param = be64toh(mess.CMPLX.param);
                 cmd_add(sock, client_address, cmd_seq, param, mess.CMPLX.data);
             } else
-                cout << "Coś nie pykło!!!\nZły komunikat.\n";
+                pckg_error(client_address, "Wrong command.");
             cout << "_SERVER__SERVER__SERVER__SERVER__SERVER__SERVER__SERVER_\n\n ";
         }
     }
