@@ -55,23 +55,21 @@ int used_space = 0;
 
 /* Obsługa zapytań clienta
  * jakas strukturka do hello
- * hello
  * FETch
  * serach
- * remove
  * i cos tam jeszcze
  * */
 
 /* TCP
- * jak zrobic?
- * przeczytac jak zrobiłem to w zad1
- * TCP  server -> client
  * TCP client -> server
+ * współbieżnie?
  * */
 
 /* Obsluga bledow
  *  Czy prawdzac ze cmd odpowiedzi od servera odpowiednio sie nazywa?
- *
+ *  sprawdzac czy pliki sie otworzyły??
+ *  Co jeżeli przy oczekiwaniu na CONNECT_ME albo CAN_ADD dostane zly cmd_seq? Mam udawac ze go nie dostałem?
+ *  gdzie mam poprawiac wartosc using_space
  * */
 //TCP_2
 
@@ -330,6 +328,11 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
             cout << "Port: " << port << "; IP : " << myIP << "\n";
         }
 
+
+        //TODO póki co to wysyłam każdemu, że chce się z nimi płączyć...
+        //TOOD chyba...
+        //Muszę to sprawdzić
+
         send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
         wyslij_plik(new_sock, filename);
     } else {
@@ -355,22 +358,109 @@ void cmd_remove(string filename) {
         cout << "Nic nie usunalem\n";
 }
 
+
+void pobierz_pliki(int new_sock, string filename) {
+    cout << "Jestem w pobierz_pliki\n";
+    struct sockaddr_in new_client_address;
+    socklen_t new_client_address_len;
+    int queue_length = 5;
+    int msg_sock;
+    cout << "przed lissten\n";
+
+    // switch to listening (passive open)
+    if (listen(new_sock, queue_length) < 0)
+        syserr("listen");
+    cout << "Przed acceptem\n";
+    msg_sock = accept(new_sock, (struct sockaddr *) &new_client_address, &new_client_address_len);
+    if (msg_sock < 0)
+        syserr("accept");
+
+    string file_path = SHRD_FLDR + filename;
+    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    cout << "przed wysyłaniem\n";
+    ssize_t datasize = 0;
+    FILE *fd = fopen(file_path.c_str(), "wb");
+    do {
+        fwrite(&buffer, sizeof(char), datasize, fd);
+        datasize = read(msg_sock, buffer, sizeof(buffer));//TODO msg_sock1!
+        cout << "Read datasize = " << datasize << "\n";
+        used_space += datasize; //TODO spoko?? chyb nie
+    } while (datasize > 0);
+    cout << "Pobrano!!\n";
+/*
+    if (datasize == 0) {
+
+        cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
+    } else {
+        cout << "File " << filename << " downloading failed (" << inet_ntoa(srvr_ip) << ":" << srvr_port
+             << ") {opis_błędu}\n"; //TODO opis błędu
+
+        cout << "BLAD pobiernia!!\n";
+    }
+*/
+
+    fclose(fd);
+    close(msg_sock);
+    cout << "Po zamknięciu fd\n";
+}
+
+
 /* Odpowiedź serwera na komunikat "ADD" */
-void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uint64_t param, const string &data) {
-    cout << "Chce dodać: " << data << "\n";
+void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uint64_t param, const string &filename) {
+    cout << "Chce dodać: " << filename << "\n";
 
     /* Sprawdzenie czy możemy dodać plik */
-    if (be64toh(param) > MAX_SPACE - used_space ||
-        data.empty() || (data.compare("/") == 0) ||
-        filename_exist(data)) {
+    if (param > MAX_SPACE - used_space ||
+        filename.empty() || (filename.compare("/") == 0) ||
+        filename_exist(filename)) {
         cout << "No niestety nie wyszło :)\n";
-        send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, data);
+        send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, filename);
     } else {
         cout << "Oki doki dawaj śmiało\n";
-        send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, 5555, data); //TODO jakis port
-        cout << "Czekam na TCP\n";
 
-        //TODO połącz po TCP
+
+        struct sockaddr_in server_address;
+        int new_sock;
+        uint64_t port = 0;
+
+
+        new_sock = socket(PF_INET, SOCK_STREAM, 0); // creating IPv4 TCP socket
+        if (new_sock < 0)
+            syserr("socket");
+        // after socket() call; we should close(sock) on any execution path;
+        // since all execution paths exit immediately, sock would be closed when program terminates
+
+        server_address.sin_family = AF_INET; // IPv4
+        server_address.sin_addr.s_addr = htonl(INADDR_ANY); // listening on all interfaces
+        server_address.sin_port = 0; // listening on port PORT_NUM
+
+        cout << "Bind\n";
+
+        // bind the socket to a concrete address
+        if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
+            syserr("bind");
+
+        struct sockaddr_in sin;
+        socklen_t len = sizeof(sin);
+        if (getsockname(new_sock, (struct sockaddr *) &sin, &len) == -1)
+            perror("getsockname");
+        else {
+            port = ntohs(sin.sin_port);
+            char myIP[16]; //TODO skasowac to
+            inet_ntop(AF_INET, &sin.sin_addr, myIP, sizeof(myIP));
+            cout << "Port: " << port << "; IP : " << myIP << "\n";
+        }
+
+        if (port != 0) {
+
+
+            //TODO sock new_cosk xDFGRWEAF?
+
+            send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);//TODO!! paaram/port
+            pobierz_pliki(new_sock, filename);
+        }
+
+        cout << "Czekam na TCP\n";
     }
 }
 

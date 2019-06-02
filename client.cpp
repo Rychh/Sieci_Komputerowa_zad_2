@@ -38,6 +38,8 @@ uint64_t cmd_seq = 5;
 
 map<string, in_addr_t> filenames;
 
+unsigned long tbs_addr = 0;
+size_t tbs_space = 0;
 
 void parser(int ac, char *av[]) {
     try {
@@ -104,6 +106,8 @@ void discover(int sock, struct sockaddr_in &my_addr) {
     struct sockaddr_in srvr_addr;
     CMD mess;
     int flags = 0;
+    tbs_addr = 0;
+    tbs_space = 0;
 
     send_simpl_cmd(sock, my_addr, "HELLO", cmd_seq, "");
     gettimeofday(&start, 0);
@@ -135,6 +139,11 @@ void discover(int sock, struct sockaddr_in &my_addr) {
                     cout << "Found " << inet_ntoa(srvr_addr.sin_addr) << " (" << mess.CMPLX.data
                          << ") with free space " << be64toh(mess.CMPLX.param)
                          << "\n";
+                    if (be64toh(mess.CMPLX.param) > tbs_space) {
+                        tbs_addr = srvr_addr.sin_addr.s_addr;
+                        tbs_space = be64toh(mess.CMPLX.param);
+                    }
+
                 } else {
                     cout << "\nNOPE\n\n"; //TODO jakis komunikat
                 }
@@ -207,15 +216,10 @@ void remove(int sock, struct sockaddr_in &my_addr, const string &filename) {
     }
 }
 
-
-void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
-    cout << "Jestem w pobieranko_z_serverwa\n";
+/* return socket */
+int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_addr &srvr_ip) {
     struct addrinfo addr_hints;
     struct addrinfo *addr_result;
-    struct in_addr srvr_ip;
-    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
-    string file_path = OUT_FLDR + filename;
-    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
     int err;
     int sock;
 
@@ -246,6 +250,19 @@ void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     freeaddrinfo(addr_result);
     cout << "przed pobraniem\n";
 
+    return sock;
+}
+
+void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
+    cout << "Jestem w pobieranko_z_serverwa\n";
+    string file_path = OUT_FLDR + filename;
+    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    struct in_addr srvr_ip;
+    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
+    int sock;
+
+    sock = tcp_connect_with_server(ip, srvr_port, srvr_ip);
+
     ssize_t datasize = 0;
     FILE *fd = fopen(file_path.c_str(), "wb");
     do {
@@ -268,16 +285,14 @@ void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
 
 void fetch(int sock, const string &filename) {
     struct sockaddr_in srvr_addr;
-    in_addr_t ip;
     struct pollfd fd;
     int flags = 0;
     uint64_t srvr_port = 0;
 
     if (filenames.find(filename) != filenames.end()) {
         CMD mess;
-        in_addr_t ip = filenames[filename];
         srvr_addr.sin_family = AF_INET; // IPv4
-        srvr_addr.sin_addr.s_addr = ip; // address IP
+        srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
         srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
         send_simpl_cmd(sock, srvr_addr, "GET", cmd_seq, filename);
 
@@ -306,14 +321,118 @@ void fetch(int sock, const string &filename) {
                 }
                 break;
         }
+//        close(sock);
         cout << "Dostałem port:" << srvr_port << "\n";
-        pobieranko_z_serverwa(ip, srvr_port, filename);
+        if (srvr_port != 0)
+            pobieranko_z_serverwa(filenames[filename], srvr_port, filename);
     } else {
         cout << "Plik nie istnieje\n"; //TODO
     }
 
 }
 
+void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
+    cout << "Jestem w wysylanko_do_serverwa\n";
+    string file_path = OUT_FLDR + filename;
+    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    struct in_addr srvr_ip;
+    srvr_ip.s_addr = ip; // TODO co raz przydszt kod
+    int sock;
+
+    sock = tcp_connect_with_server(ip, srvr_port, srvr_ip);
+
+    cout << "przed wysyłaniem\n";
+    size_t bytes_read;
+    ssize_t wyslane;
+
+    FILE *fd = fopen(file_path.c_str(), "rb");
+    while (!feof(fd)) {
+        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) { //TODO zmienic
+            cout << "przed write\n";
+            wyslane = write(sock, buffer, bytes_read); //TODO send czy write??
+            cout << "Wysłałem " << wyslane << "bytow, a miało byc:" << bytes_read << "\n";
+        } else {
+            cout << "Koniec wysyłania!\n";
+            break;
+        }
+    }
+    cout << "Po wsyłaniu \n";
+//    cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
+
+    fclose(fd);
+    close(sock);
+}
+
+
+void upload(int sock, const string &filename) {
+    struct sockaddr_in srvr_addr;
+    struct pollfd fd;
+
+    int flags = 0;
+    uint64_t srvr_port = 0;
+
+    //TODO sprawddzam czy ten link jest bezwzględny
+    string path = OUT_FLDR + filename;
+    cout << "PRZeD FILE*file\n";
+
+    FILE *file = fopen((path).c_str(), "rb");
+    cout << "PRZeD ifem\n";
+    if (file != NULL) {
+        fclose(file);//TODO czy od razu nie zamknąć???
+        cout << path << " " << fs::file_size(path) << "\n";
+        sleep(1);
+        if (fs::file_size(path) <= tbs_space) {
+            CMD mess;
+            srvr_addr.sin_family = AF_INET; // IPv4
+            srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
+            srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
+            send_cmplx_cmd(sock, srvr_addr, "ADD", cmd_seq, fs::file_size(path), filename);
+
+            socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
+
+            fd.fd = sock; // your socket handler
+            fd.events = POLLIN;
+            int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
+            switch (ret) {
+                case -1:
+                    cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
+                    // Error
+                    break;
+                case 0:
+                    cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
+                    break;
+                default:
+                    ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
+                                               (struct sockaddr *) &srvr_addr, &rcva_len);// get your data
+                    if (rcv_len < 0) {
+                        syserr("read");
+                    }
+                    break;
+            }
+
+            if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
+                srvr_port = be64toh(mess.CMPLX.param);
+                if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
+                    wysylanko_do_serverwa(filenames[filename], srvr_port, filename);
+                } else {
+                    cout << "NIE MOGŁem dodac\n";//TODO
+                }
+            } else {
+                cout << "\nNOPE\n\n"; //TODO jakis komunikat
+            }
+
+
+            //TODO tutaj zaykam!!!
+//            close(sock);
+        } else {
+            cout << "File " << filename << " too big\n";
+        }
+    } else {
+        cout << "File " << filename << " does not exist\n";
+    }
+
+
+}
 
 int main(int ac, char *av[]) {
     std::cout << "CLIENT!" << std::endl;
@@ -399,6 +518,11 @@ int main(int ac, char *av[]) {
             continue;
         }
         if (a == "u") {
+            discover(sock, my_address);
+
+            upload(sock, b);
+
+            continue;
 //            (sock, my_address, b);
 
             send_simpl_cmd(sock, my_address, "ADD", cmd_seq, b);

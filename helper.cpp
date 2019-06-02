@@ -16,7 +16,7 @@ void syserr(const char *fmt, ...)
     va_list fmt_args;
     int err = errno;
 
-    fprintf(stderr, "ERROR: ");
+    fprintf(stderr, "Moj ERROR: "); //TODO zmienic!
 
     va_start(fmt_args, fmt);
     vfprintf(stderr, fmt, fmt_args);
