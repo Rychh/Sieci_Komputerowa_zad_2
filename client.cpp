@@ -437,7 +437,7 @@ void upload(int sock, const string &filename) {
                     srvr_port = be64toh(mess.CMPLX.param);
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
                         cout <<"OK =(\n";
-//                        sleep(1);
+                        sleep(1);
                         wysylanko_do_serverwa(filenames[filename], srvr_port, filename);
                     } else if (strcmp(mess.SIMPL.cmd, "NO_WAY") == 0) {
                         cout << "File " << filename << " uploading failed (" <<
