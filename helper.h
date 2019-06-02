@@ -10,7 +10,7 @@ using namespace std;
 #ifndef SIKI_HELPER_H
 #define SIKI_HELPER_H
 
-constexpr size_t CMD_SIZE = 300; // cos pomiedzy 31-25
+constexpr size_t CMD_SIZE = 65489;
 constexpr size_t CMD_SIMPL_DATA_SIZE = CMD_SIZE - 10 * sizeof(char) - sizeof(uint64_t);
 constexpr size_t CMD_CMPLX_DATA_SIZE = CMD_SIZE - 10 * sizeof(char) - 2 * sizeof(uint64_t);
 

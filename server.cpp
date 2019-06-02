@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <stdarg.h>
 #include <poll.h>
+#include <thread>
 #include "helper.h"
 
 namespace po = boost::program_options;
@@ -279,7 +280,7 @@ void wyslij_plik(int new_sock, string filename) {
     string file_path = SHRD_FLDR + filename;
     FILE *fd = fopen(file_path.c_str(), "rb");
     size_t rret, wret;
-    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512*1024]; //TODO zwiększyc. MALLOCOWAĆ??
     cout << "przed wysyłaniem\n";
 
     size_t bytes_read;
@@ -351,7 +352,8 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
 
         send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);//TODO!! paaram/port
         cout << "connect_me wysłałem!!\n";
-        wyslij_plik(new_sock, filename);
+        std::thread t{[new_sock, filename] {wyslij_plik(new_sock, filename);}};
+        t.detach();
     } else {
         cout << "Nie ma tu tatkiego pliku:\"" << filename << "\". Proszę poszukać gdzieś indziej.\n";
         //TODO jezeli dany plik nie istnieje to nic nie wysylam ale odnotowuje
@@ -411,7 +413,7 @@ void pobierz_pliki(int new_sock, string filename) {
         syserr("accept");
 
     string file_path = SHRD_FLDR + filename;
-    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512*1024]; //TODO zwiększyc. MALLOCOWAĆ??
     cout << "przed wysyłaniem\n";
     ssize_t datasize = 0;
     FILE *file = fopen(file_path.c_str(), "wb");
@@ -476,6 +478,7 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
         if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
             syserr("bind");
 
+
         struct sockaddr_in sin;
         socklen_t len = sizeof(sin);
         if (getsockname(new_sock, (struct sockaddr *) &sin, &len) == -1)
@@ -493,9 +496,20 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
             //TODO sock new_cosk xDFGRWEAF?
             send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);//TODO!! paaram/port
 
+/*
+            cout << "Bind\n";
+
+            // bind the socket to a concrete address
+            if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
+                syserr("bind");
+*/
 
             cout << filename << new_sock << "-przed\n";
-            pid_t pid = fork();
+
+            std::thread t{[new_sock, filename] {pobierz_pliki(new_sock, filename);}};
+            t.detach();
+
+            /*pid_t pid = fork();
             if (pid == 0) {// child process
                 pobierz_pliki(new_sock, filename);
 
@@ -506,7 +520,7 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
             } else {
                 // fork failed
                 cout << "Problem z forkiem!!!\n"; //TODO;
-            }
+            }*/
 
         }
 

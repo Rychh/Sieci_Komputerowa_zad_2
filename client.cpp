@@ -18,6 +18,7 @@
 #include <map>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <thread>
 #include "helper.h"
 #include "err.h"
 
@@ -93,12 +94,7 @@ void parser(int ac, char *av[]) {
     catch (...) {
         cerr << "Exception of unknown type!\n";
     }
-
-    /* cout << "MCAST_ADDR:" << MCAST_ADDR << "\n"
-          << "CMD_PORT:" << CMD_PORT << "\n"
-          << "OUT_FLDR:" << OUT_FLDR << "\n"
-          << "TIMEOUT:" << TIMEOUT << "\n";
- */
+    
 }
 
 void discover(int sock, struct sockaddr_in &my_addr, bool print_message = true) {
@@ -121,11 +117,8 @@ void discover(int sock, struct sockaddr_in &my_addr, bool print_message = true) 
         int ret = poll(&fd, 1, (int) wait_ms); // 1 second for timeout
         switch (ret) {
             case -1:
-                cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
-                // Error
                 break;
             case 0:
-                cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
                 break;
             default:
                 ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
@@ -179,11 +172,8 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
         int ret = poll(&fd, 1, wait_ms); // 1 second for timeout
         switch (ret) {
             case -1:
-                cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
-                // Error
                 break;
             case 0:
-                cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
                 break;
             default:
                 ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
@@ -249,16 +239,16 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
         syserr("socket");
     cout << "przed połączeniem\n";
 
-    /*struct timeval timeout;
+    struct timeval timeout;
     timeout.tv_sec = TIMEOUT;
     timeout.tv_usec = 0;
-    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,
-                    sizeof(timeout)) < 0)
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
+                   sizeof(timeout)) < 0)
         syserr("setsockopt failed\n");
 
-    if (setsockopt (sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout,
-                    sizeof(timeout)) < 0)
-        syserr("setsockopt failed\n");*/
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
+                   sizeof(timeout)) < 0)
+        syserr("setsockopt failed\n");
 
     // connect socket to the server
     if (connect(sock, addr_result->ai_addr, addr_result->ai_addrlen) < 0)
@@ -273,7 +263,7 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
 void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     cout << "Jestem w pobieranko_z_serverwa\n";
     string file_path = OUT_FLDR + filename;
-    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
     struct in_addr srvr_ip;
     srvr_ip.s_addr = ip; // TODO co raz przydszt kod
     int sock;
@@ -336,7 +326,11 @@ void fetch(int sock, const string &filename) {
         if (rcv_b) {
             if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
                 if (strncmp(mess.SIMPL.cmd, "CONNECT_ME", 10) == 0) {
-                    pobieranko_z_serverwa(filenames[filename], be64toh(mess.CMPLX.param), filename);
+                    sleep(1);
+                    in_addr_t ip = filenames[filename];
+                    uint64_t port = be64toh(mess.CMPLX.param);
+                    std::thread t{[ip, port, filename] { pobieranko_z_serverwa(ip,port, filename); }};
+                    t.detach();
                 } else {
                     pckg_error(srvr_addr, "Wrong server command. Fetch was stopped.");
                 }
@@ -357,7 +351,7 @@ void fetch(int sock, const string &filename) {
 void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     cout << "Jestem w wysylanko_do_serverwa\n";
     string file_path = OUT_FLDR + filename;
-    char buffer[60000]; //TODO zwiększyc. MALLOCOWAĆ??
+    char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
     struct in_addr srvr_ip;
     srvr_ip.s_addr = ip; // TODO co raz przydszt kod
     int sock;
@@ -417,11 +411,8 @@ void upload(int sock, const string &filename) {
             int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
             switch (ret) {
                 case -1:
-                    cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
-                    // Error
                     break;
                 case 0:
-                    cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
                     break;
                 default:
                     ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
@@ -436,9 +427,10 @@ void upload(int sock, const string &filename) {
                 if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
                     srvr_port = be64toh(mess.CMPLX.param);
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
-                        cout <<"OK =(\n";
                         sleep(1);
-                        wysylanko_do_serverwa(filenames[filename], srvr_port, filename);
+                        in_addr_t ip = filenames[filename];
+                        std::thread t{[ip, srvr_port, filename] { wysylanko_do_serverwa(ip,srvr_port, filename); }};
+                        t.detach();
                     } else if (strcmp(mess.SIMPL.cmd, "NO_WAY") == 0) {
                         cout << "File " << filename << " uploading failed (" <<
                              inet_ntoa(srvr_addr.sin_addr) << ":" << ntohs(srvr_addr.sin_port)
@@ -463,7 +455,6 @@ void upload(int sock, const string &filename) {
 }
 
 int main(int ac, char *av[]) {
-    std::cout << "CLIENT!" << std::endl;
     parser(ac, av);
     CMD cos;
     struct sockaddr_in my_address;
