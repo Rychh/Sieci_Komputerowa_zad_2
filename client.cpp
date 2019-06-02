@@ -94,7 +94,6 @@ void parser(int ac, char *av[]) {
     catch (...) {
         cerr << "Exception of unknown type!\n";
     }
-    
 }
 
 void discover(int sock, struct sockaddr_in &my_addr, bool print_message = true) {
@@ -187,7 +186,6 @@ void search(int sock, struct sockaddr_in &my_addr, const string &infix) {
                         string filename;
                         stringstream ss(mess.SIMPL.data);
                         while (ss >> filename) {
-                            cout << filename << " (" << inet_ntoa(srvr_addr.sin_addr) << ")\n";
                             filenames.insert(pair<string, in_addr_t>(filename, srvr_addr.sin_addr.s_addr));
                         }
                     } else {
@@ -223,7 +221,6 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
     addr_hints.ai_family = AF_INET; // IPv4
     addr_hints.ai_socktype = SOCK_STREAM;
     addr_hints.ai_protocol = IPPROTO_TCP;
-    cout << "Port?" << srvr_port << "\n";
     //TODO nie wie czy odpowiedni port wysyłam host to kurwa chuj!@#$W$TQRTEHRTMHEJJYY%#@Q#
 
     err = getaddrinfo(inet_ntoa(srvr_ip), to_string(srvr_port).c_str(), &addr_hints, &addr_result);
@@ -237,7 +234,6 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
     sock = socket(addr_result->ai_family, addr_result->ai_socktype, addr_result->ai_protocol);
     if (sock < 0)
         syserr("socket");
-    cout << "przed połączeniem\n";
 
     struct timeval timeout;
     timeout.tv_sec = TIMEOUT;
@@ -255,13 +251,11 @@ int tcp_connect_with_server(in_addr_t ip, uint64_t srvr_port, const struct in_ad
         syserr("connect");
 
     freeaddrinfo(addr_result);
-    cout << "przed pobraniem\n";
 
     return sock;
 }
 
 void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
-    cout << "Jestem w pobieranko_z_serverwa\n";
     string file_path = OUT_FLDR + filename;
     char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
     struct in_addr srvr_ip;
@@ -275,7 +269,6 @@ void pobieranko_z_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
     do {
         fwrite(&buffer, sizeof(char), datasize, fd);
         datasize = read(sock, buffer, sizeof(buffer));
-        cout << "Read datasize = " << datasize << "\n";
     } while (datasize > 0);
     if (datasize == 0) {
 
@@ -300,7 +293,6 @@ void fetch(int sock, const string &filename) {
         srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
         srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
         send_simpl_cmd(sock, srvr_addr, "GET", cmd_seq, filename);
-        cout << "get!!\n";
 
         socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
         fd.fd = sock; // your socket handler
@@ -308,11 +300,9 @@ void fetch(int sock, const string &filename) {
         int ret = poll(&fd, 1, TIMEOUT * 1000); // 1 second for timeout
         switch (ret) {
             case -1:
-                cout << "\n\nERROR_________ERROR_________ERROR_________ERROR_________ERROR_________\n\n";
                 // Error
                 break;
             case 0:
-                cout << "TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__TIMEOUT__\n";
                 break;
             default:
                 ssize_t rcv_len = recvfrom(sock, &mess, sizeof(CMD), flags,
@@ -349,7 +339,6 @@ void fetch(int sock, const string &filename) {
 }
 
 void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
-    cout << "Jestem w wysylanko_do_serverwa\n";
     string file_path = OUT_FLDR + filename;
     char buffer[512 * 1024]; //TODO zwiększyc. MALLOCOWAĆ??
     struct in_addr srvr_ip;
@@ -358,17 +347,15 @@ void wysylanko_do_serverwa(in_addr_t ip, uint64_t srvr_port, string filename) {
 
     sock = tcp_connect_with_server(ip, srvr_port, srvr_ip);
 
-    cout << "przed wysyłaniem\n";
     size_t bytes_read;
     ssize_t wyslane;
 
     FILE *fd = fopen(file_path.c_str(), "rb");
     while (!feof(fd)) {
-        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) { //TODO zmienic
-            cout << "przed write\n";
+        if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) {
             wyslane = write(sock, buffer, bytes_read); //TODO send czy write??
-            cout << "Wysłałem " << wyslane << "bytow, a miało byc:" << bytes_read << "\n";
         } else {
+            //TODO dodac commentarze
             cout << "Koniec wysyłania!\n";
             break;
         }
@@ -396,7 +383,6 @@ void upload(int sock, const string &filename) {
     }
     if (file != nullptr) {
         fclose(file);
-        cout << path << " " << fs::file_size(path) << "\n";
         if (fs::file_size(path) <= tbs_space) {
             CMD mess;
             srvr_addr.sin_family = AF_INET; // IPv4
