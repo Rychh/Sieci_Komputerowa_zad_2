@@ -380,7 +380,6 @@ void upload(int sock, const string &filename) {
     if (file != NULL) {
         fclose(file);//TODO czy od razu nie zamknąć???
         cout << path << " " << fs::file_size(path) << "\n";
-        sleep(1);
         if (fs::file_size(path) <= tbs_space) {
             CMD mess;
             srvr_addr.sin_family = AF_INET; // IPv4

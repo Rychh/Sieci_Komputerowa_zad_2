@@ -506,7 +506,6 @@ int main(int ac, char *av[]) {
         int flag = 0;
         ssize_t len = recvfrom(sock, &mess, sizeof(CMD), flag,
                                (struct sockaddr *) &client_address, &rcva_len);
-        sleep(TIMEOUT);
 
         if (len < 0)
             syserr("error on datagram from client socket");
