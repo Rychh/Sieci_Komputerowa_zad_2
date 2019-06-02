@@ -1,3 +1,20 @@
+cmake_minimum_required(VERSION 3.12)
+project(siki)
+
+set(CMAKE_CXX_STANDARD 17)
+
+find_package(Threads)
+find_package(Boost COMPONENTS program_options system filesystem log REQUIRED)
+include_directories(${Boost_INCLUDE_DIRS})
+set(Boost_USE_STATIC_LIBS ON)
+
+add_executable(netstore-client client.cpp helper.cpp)
+target_link_libraries(netstore-client ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+
+add_executable(netstore-server server.cpp helper.cpp)
+target_link_libraries(netstore-server ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+
+#[[
 cmake_minimum_required(VERSION 3.11)
 
 project(Siki)
@@ -13,4 +30,4 @@ add_executable(server server.cpp helper.cpp )
 add_executable(client client.cpp helper.cpp)
 
 target_link_libraries(server ${Boost_LIBRARIES} )
-target_link_libraries(client ${Boost_LIBRARIES} )
+target_link_libraries(client ${Boost_LIBRARIES} )]]
