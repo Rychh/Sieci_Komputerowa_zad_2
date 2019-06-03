@@ -423,7 +423,7 @@ void upload(int sock, const string &filename) {
                 if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
                     srvr_port = be64toh(mess.CMPLX.param);
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
-                        //sleep(1);
+                        sleep(1);
                         in_addr_t ip = filenames[filename];
                         std::thread t{[ip, srvr_port, filename] {
                             tcp_write_from_file(ip, srvr_port, filename);
