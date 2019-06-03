@@ -34,45 +34,7 @@ string SHRD_FLDR = "";// -f
 short TIMEOUT = 5;// -t
 unsigned long long used_space = 0;
 
-//PYTANIA:
-//Czy robić nowe mess? - Nie trzeba bo forki "tworzą nowe".
-//Jak ogółem postawić server? wielowątkowo? -Tak!
-//TCP?? jak? Wątki?
-//Zamykanie?
-
-//TODO domsylne wartosci
-//TODO
-//ZADANIA:
-//Na zrobić samo przesyłanie plikow danych do clienta a on tylko wypisuje co widzi
-
-/*
- * Po prau sekundach zamykanie czekania na odpowiedź
- * */
-
-/* Parser
- * Dowiedzieć się jaki najlepiej użyć do client
- * Client
- * Może zmienić inne parsery
- * */
-
-/* Obsługa zapytań clienta
- * */
-
-/* TCP
- * współbieżnie?
- * */
-
-/* Co z constexpr size_t CMD_SIZE = 300; ?
- *
- * */
-
-/* Obsluga bledow
- *  sprawdzac czy pliki sie otworzyły??
- *  Co jeżeli przy oczekiwaniu na CONNECT_ME albo CAN_ADD dostane zly cmd_seq? Mam udawac ze go nie dostałem?
- *  gdzie mam poprawiac wartosc using_space
- * */
-//TCP_2
-
+/* Parser odpowiadający za flagi*/
 void parser(int ac, char *av[]) {
     try {
 
@@ -133,6 +95,7 @@ void parser(int ac, char *av[]) {
     }
 }
 
+/* Zlicza rozmiar plików w folderze */
 void load_files_names() {
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())) {
@@ -141,7 +104,7 @@ void load_files_names() {
     }
 }
 
-
+/* Inicjuje socket dla udp */
 int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short local_port) {
     /* otworzenie gniazda */
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -177,8 +140,8 @@ int initSock(struct ip_mreq &ip_mreq, char *multicast_dotted_address, short loca
     return sock;
 }
 
-
-bool filename_exist(string filename) {
+/* Sprawdza czy dany plik znajduje się w folderze */
+bool filename_exist(const string &filename) {
     /* Sprawdzenie czy nie istnieje już plik o tej nazwie.*/
     for (fs::directory_iterator itr(SHRD_FLDR); itr != fs::directory_iterator(); ++itr) {
         if (is_regular_file(itr->status())
@@ -218,8 +181,8 @@ void cmd_list(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, co
     }
 }
 
-
-void wyslij_plik(int new_sock, string filename) {
+/* Wysłanie pliku przez tcp. */
+void tcp_send_file(int new_sock, string filename) {
     struct sockaddr_in new_client_address;
     socklen_t new_client_address_len;
     int queue_length = 5;
@@ -234,14 +197,16 @@ void wyslij_plik(int new_sock, string filename) {
         syserr("accept");
     string file_path = SHRD_FLDR + filename;
     FILE *fd = fopen(file_path.c_str(), "rb");
-    size_t rret, wret;
     char buffer[512 * 1024];
 
+    // wysyłanie
     size_t bytes_read;
-    ssize_t wyslane;
+    size_t bytes_write;
     while (!feof(fd)) {
         if ((bytes_read = fread(&buffer, 1, sizeof(buffer), fd)) > 0) {
-            wyslane = write(msg_sock, buffer, bytes_read);
+            bytes_write = 0;
+            while (bytes_write != bytes_read)
+                bytes_write += write(msg_sock, buffer + bytes_write, bytes_read - bytes_write);
         } else {
             break;
         }
@@ -269,16 +234,16 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
 
 
         struct timeval timeout;
-        timeout.tv_sec = TIMEOUT;
+        timeout.tv_sec = TIMEOUT; // Przez max TIMEOUT czekam na send/recv.
         timeout.tv_usec = 0;
 
         if (setsockopt(new_sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
                        sizeof(timeout)) < 0)
-            syserr("setsockopt failed\n");
+            syserr("setsockopt failed");
 
         if (setsockopt(new_sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &timeout,
                        sizeof(timeout)) < 0)
-            syserr("setsockopt failed\n");
+            syserr("setsockopt failed");
 
         // bind the socket to a concrete address
         if (bind(new_sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0)
@@ -291,7 +256,7 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         else {
             port = ntohs(sin.sin_port);
             send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);
-            std::thread t{[new_sock, filename] { wyslij_plik(new_sock, filename); }};
+            std::thread t{[new_sock, filename] { tcp_send_file(new_sock, filename); }};
             t.detach();
         }
     } else {
@@ -310,8 +275,8 @@ void cmd_remove(string filename) {
     }
 }
 
-
-void pobierz_pliki(int new_sock, string filename) {
+/* Pobranie pliku przez tcp. */
+void tcp_download_file(int new_sock, string filename) {
     struct sockaddr_in new_client_address;
     socklen_t new_client_address_len;
     int queue_length = 5;
@@ -324,6 +289,7 @@ void pobierz_pliki(int new_sock, string filename) {
     if (msg_sock < 0)
         syserr("accept");
 
+    // pobieranie
     string file_path = SHRD_FLDR + filename;
     char buffer[512 * 1024];
     ssize_t datasize = 0;
@@ -332,7 +298,6 @@ void pobierz_pliki(int new_sock, string filename) {
         fwrite(&buffer, sizeof(char), datasize, file);
         datasize = read(msg_sock, buffer, sizeof(buffer));
     } while (datasize > 0);
-    //TODO komunikat!!
 
     fclose(file);
     close(msg_sock);
@@ -344,7 +309,7 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
 
     /* Sprawdzenie czy możemy dodać plik */
     if (param > MAX_SPACE - used_space ||
-        filename.empty() || (filename.find("/") != string::npos) ||
+        filename.empty() || (filename.find('/') != string::npos) ||
         filename_exist(filename)) {
         send_simpl_cmd(sock, client_address, "NO_WAY", cmd_seq, filename);
     } else {
@@ -363,7 +328,7 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
         server_address.sin_port = 0; // listening on port PORT_NUM
 
         struct timeval timeout;
-        timeout.tv_sec = TIMEOUT;
+        timeout.tv_sec = TIMEOUT; // Przez max TIMEOUT czekam na send/recv.
         timeout.tv_usec = 0;
 
         if (setsockopt(new_sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout,
@@ -391,24 +356,19 @@ void cmd_add(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, uin
             used_space += param;
             send_cmplx_cmd(sock, client_address, "CAN_ADD", cmd_seq, port, filename);
 
-            std::thread t{[new_sock, filename] { pobierz_pliki(new_sock, filename); }};
+            std::thread t{[new_sock, filename] { tcp_download_file(new_sock, filename); }};
             t.detach();
         }
     }
 }
 
 int main(int ac, char *av[]) {
-    struct sockaddr_in server_address;
     struct sockaddr_in client_address;
-    socklen_t snda_len, rcva_len;
+    socklen_t rcva_len;
     CMD mess;
-
     char *multicast_dotted_address;
-    in_port_t local_port;
     int sock;
     struct ip_mreq ip_mreq;
-    ssize_t rcv_len;
-    int i;
 
     parser(ac, av);
 
