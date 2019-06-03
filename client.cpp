@@ -249,7 +249,6 @@ tcp_connect_with_server(uint64_t srvr_port, const struct in_addr &srvr_ip, const
         syserr2(err_info, "setsockopt failed");
 
     // connect socket to the server
-    sock++;
     if (connect(sock, addr_result->ai_addr, addr_result->ai_addrlen) < 0)
         syserr2(err_info, "connect");
 
@@ -275,11 +274,10 @@ void tcp_read_to_file(in_addr_t ip, uint64_t srvr_port, string filename) {
         datasize = read(sock, buffer, sizeof(buffer));
     } while (datasize > 0);
     if (datasize == 0) {
-
         cout << "File " << filename << " downloaded (" << inet_ntoa(srvr_ip) << ":" << srvr_port << ")\n";
     } else {
         cout << "File " << filename << " downloading failed (" << inet_ntoa(srvr_ip) << ":" << srvr_port
-             << ")\n";
+             << ") Read\n";
     }
     fclose(fd);
     close(sock);
@@ -289,6 +287,7 @@ void tcp_read_to_file(in_addr_t ip, uint64_t srvr_port, string filename) {
 void fetch(int sock, const string &filename) {
     struct sockaddr_in srvr_addr;
     struct pollfd fd;
+    string address;
     bool rcv_b = false;
     int flags = 0;
 
@@ -297,6 +296,7 @@ void fetch(int sock, const string &filename) {
         srvr_addr.sin_family = AF_INET; // IPv4
         srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
         srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
+        address = inet_ntoa(srvr_addr.sin_addr);
         send_simpl_cmd(sock, srvr_addr, "GET", cmd_seq, filename);
 
         socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
@@ -325,13 +325,7 @@ void fetch(int sock, const string &filename) {
                     uint64_t port = be64toh(mess.CMPLX.param);
                     string address = inet_ntoa(srvr_addr.sin_addr);
                     std::thread t{[ip, port, filename, address] {
-                        try {
-                            tcp_read_to_file(ip, port, filename);
-                        } catch (exception &e) {
-                            cout << "xddFile " << filename << " downloading failed (" <<
-                                 address << ":" << port
-                                 << "). " << e.what() << ".\n";
-                        }
+                        tcp_read_to_file(ip, port, filename);
                     }};
                     t.detach();
                 } else {
@@ -342,7 +336,7 @@ void fetch(int sock, const string &filename) {
             }
         } else {
             cout << "File " << filename << " downloading failed (" <<
-                 inet_ntoa(srvr_addr.sin_addr) << ":" << ntohs(srvr_addr.sin_port)
+                 address << ":" << ntohs(srvr_addr.sin_port)
                  << "). No answer was received.\n";
         }
     } else {
@@ -399,9 +393,11 @@ void upload(int sock, const string &filename) {
         fclose(file);
         if (fs::file_size(path) <= tbs_space) {
             CMD mess;
+            string address;
             srvr_addr.sin_family = AF_INET; // IPv4
             srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
             srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
+            address = inet_ntoa(srvr_addr.sin_addr);
             send_cmplx_cmd(sock, srvr_addr, "ADD", cmd_seq, fs::file_size(path), filename);
 
             socklen_t rcva_len = (socklen_t) sizeof(srvr_addr);
@@ -429,11 +425,13 @@ void upload(int sock, const string &filename) {
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
                         //sleep(1);
                         in_addr_t ip = filenames[filename];
-                        std::thread t{[ip, srvr_port, filename] { tcp_write_from_file(ip, srvr_port, filename); }};
+                        std::thread t{[ip, srvr_port, filename] {
+                            tcp_write_from_file(ip, srvr_port, filename);
+                        }};
                         t.detach();
                     } else if (strcmp(mess.SIMPL.cmd, "NO_WAY") == 0) {
                         cout << "File " << filename << " uploading failed (" <<
-                             inet_ntoa(srvr_addr.sin_addr) << ":" << ntohs(srvr_addr.sin_port)
+                             address << ":" << ntohs(srvr_addr.sin_port)
                              << "). The server does not want to download.\n";
                     } else {
                         pckg_error(srvr_addr, "Wrong server command. Upload was stopped.");
@@ -443,7 +441,7 @@ void upload(int sock, const string &filename) {
                 }
             } else {
                 cout << "File " << filename << " uploading failed (" <<
-                     inet_ntoa(srvr_addr.sin_addr) << ":" << ntohs(srvr_addr.sin_port)
+                     address << ":" << ntohs(srvr_addr.sin_port)
                      << "). No answer was received.\n";
             }
         } else {

@@ -256,7 +256,9 @@ void cmd_get(int sock, struct sockaddr_in &client_address, uint64_t cmd_seq, str
         else {
             port = ntohs(sin.sin_port);
             send_cmplx_cmd(sock, client_address, "CONNECT_ME", cmd_seq, port, filename);
-            std::thread t{[new_sock, filename] { tcp_send_file(new_sock, filename); }};
+            std::thread t{[new_sock, filename] {
+                tcp_send_file(new_sock, filename);
+            }};
             t.detach();
         }
     } else {
