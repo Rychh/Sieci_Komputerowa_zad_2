@@ -36,7 +36,8 @@ int used_space = 0;
 uint64_t cmd_seq = 5;
 map<string, in_addr_t> filenames;
 
-unsigned long tbs_addr = 0;
+// addres ip servera z najwięszką iloscią wolnego miejsca
+in_addr_t tbs_addr = 0;
 size_t tbs_space = 0;
 
 /* Parser odpowiadający za flagi*/
@@ -132,6 +133,7 @@ void discover(int sock, struct sockaddr_in &my_addr, bool print_message = true) 
                                  << "\n";
                         }
                         if (be64toh(mess.CMPLX.param) > tbs_space) {
+                            // szukanie servera z największą ilością wolnego miejsca
                             tbs_addr = srvr_addr.sin_addr.s_addr;
                             tbs_space = be64toh(mess.CMPLX.param);
                         }
@@ -321,7 +323,7 @@ void fetch(int sock, const string &filename) {
             if (cmd_seq == be64toh(mess.SIMPL.cmd_seq)) {
                 if (strncmp(mess.SIMPL.cmd, "CONNECT_ME", 10) == 0) {
                     sleep(1);
-                    in_addr_t ip = filenames[filename];
+                    in_addr_t ip = filenames[filename]; // server posiadający dany plik
                     uint64_t port = be64toh(mess.CMPLX.param);
                     std::thread t{[ip, port, filename] {
                         tcp_read_to_file(ip, port, filename);
@@ -394,7 +396,7 @@ void upload(int sock, const string &filename) {
             CMD mess;
             string address;
             srvr_addr.sin_family = AF_INET; // IPv4
-            srvr_addr.sin_addr.s_addr = filenames[filename]; // address IP
+            srvr_addr.sin_addr.s_addr = tbs_addr; // address IP
             srvr_addr.sin_port = htons((uint16_t) CMD_PORT); // port from the command line
             address = inet_ntoa(srvr_addr.sin_addr);
             send_cmplx_cmd(sock, srvr_addr, "ADD", cmd_seq, fs::file_size(path), filename);
@@ -423,7 +425,7 @@ void upload(int sock, const string &filename) {
                     srvr_port = be64toh(mess.CMPLX.param);
                     if (strcmp(mess.SIMPL.cmd, "CAN_ADD") == 0) {
                         sleep(1);
-                        in_addr_t ip = filenames[filename];
+                        in_addr_t ip = tbs_addr; // serwer z największa ilością wolnego miejsca
                         std::thread t{[ip, srvr_port, filename] {
                             tcp_write_from_file(ip, srvr_port, filename);
                         }};
