@@ -323,8 +323,7 @@ void fetch(int sock, const string &filename) {
                     sleep(1);
                     in_addr_t ip = filenames[filename];
                     uint64_t port = be64toh(mess.CMPLX.param);
-                    string address = inet_ntoa(srvr_addr.sin_addr);
-                    std::thread t{[ip, port, filename, address] {
+                    std::thread t{[ip, port, filename] {
                         tcp_read_to_file(ip, port, filename);
                     }};
                     t.detach();
