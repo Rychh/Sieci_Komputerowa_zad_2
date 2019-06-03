@@ -67,13 +67,16 @@ send_cmd(int sock, struct sockaddr_in &addr, const string &cmd, uint64_t cmd_seq
     int flag = 0;
     CMD mess;
     memset(mess.CMPLX.cmd, 0, 10);
-    strncpy(mess.CMPLX.cmd, cmd.c_str(), 10);
+//    strncpy(mess.CMPLX.cmd, cmd.c_str(), 10);
+    strcpy(mess.CMPLX.cmd, cmd.c_str());
     mess.CMPLX.cmd_seq = htobe64(cmd_seq);
     if (isSimple) {
-        strncpy(mess.SIMPL.data, data.c_str(), CMD_SIMPL_DATA_SIZE);
+//        strncpy(mess.SIMPL.data, data.c_str(), CMD_SIMPL_DATA_SIZE);
+        strcpy(mess.SIMPL.data, data.c_str());
     } else {
         mess.CMPLX.param = htobe64(param);
-        strncpy(mess.CMPLX.data, data.c_str(), CMD_CMPLX_DATA_SIZE);
+//        strncpy(mess.CMPLX.data, data.c_str(), CMD_CMPLX_DATA_SIZE);
+        strcpy(mess.CMPLX.data, data.c_str());
     }
 
     addr_len = (socklen_t) sizeof(addr);
